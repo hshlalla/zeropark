@@ -1,0 +1,28 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# OSS design-reference checkouts — not part of the build
+external/
+
+# generated artifacts
+artifacts/
+
+*.log
+*.tmp
+*.bak

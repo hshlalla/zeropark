@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zeropark-engines"
+version = "0.1.0"
+description = "Native, in-process implementations of Zeropark capabilities. OSS projects are design references only."
+requires-python = ">=3.11"
+dependencies = [
+    "zeropark-core>=0.1.0",
+    "httpx>=0.27.0",
+    "markdownify>=0.13",
+    "python-pptx>=1.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.49"]
+dev = ["pytest>=8.0.0"]
+
+[tool.uv.sources]
+zeropark-core = { workspace = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]

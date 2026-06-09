@@ -1,0 +1,37 @@
+# Zeropark monorepo root (uv workspace).
+#
+# Single, self-contained framework. Engines are NATIVE (packages/zeropark-engines),
+# so there are NO external engine services and NO cross-engine dependency conflicts.
+# The OSS checkouts under external/ are DESIGN REFERENCES ONLY — never imported,
+# never run, excluded from the workspace.
+
+[project]
+name = "zeropark-workspace"
+version = "0.0.0"
+description = "Zeropark — native, OSS-referenced AI-workspace framework (one sellable artifact)."
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = ["packages/zeropark-core", "packages/zeropark-engines", "services/gateway"]
+exclude = ["external/*", "packages/zeropark-adapters"]
+
+[tool.uv.sources]
+zeropark-core = { workspace = true }
+zeropark-engines = { workspace = true }
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+# importlib avoids duplicate test-module basename collisions across packages.
+addopts = "--import-mode=importlib"
+testpaths = [
+    "packages/zeropark-core/tests",
+    "packages/zeropark-engines/tests",
+    "services/gateway/tests",
+]
+norecursedirs = ["external", "packages/zeropark-adapters", "*.egg-info", ".git"]

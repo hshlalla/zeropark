@@ -1,0 +1,49 @@
+project:
+  id: "zeropark"
+  name: "Zeropark OSS AI Workspace"
+  description: "OSS 기반 Genspark형 AI 워크스페이스 프레임워크. 검색·딥리서치·슈퍼에이전트·슬라이드·시트·웹자동화·아티팩트를 한 프롬프트로. 솔루션(구축 서비스)으로 판매 가능하도록 패키징/객체화."
+  owner: "홍수훈"
+  department: "AI 개발팀"
+  timezone: "Asia/Seoul"
+
+repository:
+  default_branch: "main"   # 현재 'master'에 0커밋 — main으로 정정 권장
+  layout: "monorepo-workspaces"
+  packaging: "uv workspace (packages/* + services/*), 엔진은 external/ 격리"
+
+management:
+  status: "in_progress"
+  priority: "high"
+  start_date: "2026-06-08"
+  target_date: "2026-09-30"
+  progress: 25                 # Phase 0~1 완료 + Phase 2 스파인 착수
+  progress_policy: "hybrid"
+  phase: "Phase 2 (Gateway Integration) 착수"
+
+members:
+  - name: "홍수훈"
+    role: "owner / architect"
+    responsibility:
+      - "아키텍처 / 제품 방향"
+      - "OSS 통합 / 패키징"
+
+dashboard_rules:
+  progress_source:
+    - "docs/02-progress/progress.md"
+    - "docs/01-planning/wbs/wbs.md"
+  document_paths:
+    product_requirements: "docs/01-planning/product-requirements.md"
+    development_spec: "docs/01-planning/development-spec.md"
+    architecture: "docs/01-planning/architecture/architecture.md"
+    system_flow: "docs/01-planning/architecture/system-flow.md"
+    dependency_isolation: "docs/01-planning/architecture/dependency-isolation.md"
+    wbs: "docs/01-planning/wbs/wbs.md"
+    progress: "docs/02-progress/progress.md"
+    blockers: "docs/02-progress/blockers.md"
+    decision_log: "docs/01-planning/decision-log.md"
+    test_plan: "docs/03-quality/test-plan.md"
+    deploy_guide: "docs/04-operations/deploy-guide.md"
+    release_notes: "docs/04-operations/release-notes.md"
+    oss_source_map: "docs/oss-source-map.md"
+  required_commit_message_pattern: "<type>(<scope>): [TASK-ID] message"
+  task_id_pattern: "\\[(DEV|BUG|DOC|HOTFIX)-[0-9]{3,}\\]"

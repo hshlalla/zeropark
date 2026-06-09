@@ -1,0 +1,69 @@
+# OSS REFERENCE MANIFEST — 설계 참고용 목록입니다.
+# 이 저장소들은 import/실행/배포되지 않으며, 네이티브 재구현의 설계 참고로만 사용합니다.
+# usage: reference-only.  코드 차용 규칙은 THIRD_PARTY_NOTICES.md 참고.
+
+sources:
+  - id: deer-flow
+    repo: bytedance/deer-flow
+    url: https://github.com/bytedance/deer-flow.git
+    branch: main
+    tier: core
+    role: super-agent harness
+    license: MIT
+  - id: dify
+    repo: langgenius/dify
+    url: https://github.com/langgenius/dify.git
+    branch: main
+    tier: core
+    role: workflow, RAG, LLMOps
+    license: Dify Open Source License
+  - id: presenton
+    repo: presenton/presenton
+    url: https://github.com/presenton/presenton.git
+    branch: main
+    tier: core
+    role: AI slides and PPTX export
+    license: Apache-2.0
+  - id: crawl4ai
+    repo: unclecode/crawl4ai
+    url: https://github.com/unclecode/crawl4ai.git
+    branch: main
+    tier: core
+    role: web crawling and extraction
+    license: Apache-2.0 plus attribution
+  - id: browser-use
+    repo: browser-use/browser-use
+    url: https://github.com/browser-use/browser-use.git
+    branch: main
+    tier: core
+    role: browser automation
+    license: MIT
+  - id: openmanus
+    repo: FoundationAgents/OpenManus
+    url: https://github.com/FoundationAgents/OpenManus.git
+    branch: main
+    tier: optional
+    role: general agent reference
+    license: MIT
+  - id: searxng
+    repo: searxng/searxng
+    url: https://github.com/searxng/searxng.git
+    branch: master
+    tier: optional
+    role: metasearch
+    license: AGPL-3.0
+  - id: coze-studio
+    repo: coze-dev/coze-studio
+    url: https://github.com/coze-dev/coze-studio.git
+    branch: main
+    tier: optional
+    role: visual agent platform alternative
+    license: Apache-2.0
+  - id: ui-tars-desktop
+    repo: bytedance/UI-TARS-desktop
+    url: https://github.com/bytedance/UI-TARS-desktop.git
+    branch: main
+    tier: optional
+    role: GUI and computer-use agent stack
+    license: Apache-2.0
+
