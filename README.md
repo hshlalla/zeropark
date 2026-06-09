@@ -100,7 +100,8 @@ print("결과:", output)
 | slides | ✅ | python-pptx (Native) |
 | search | ✅ | Commodity API client (Native) |
 | research | ✅ | LLM Multi-step reasoning (Native) |
-| browse / sheets | ⏳ | UI connected, backend expanding |
+| browse | ✅ | Playwright (Native) |
+| sheets | ✅ | openpyxl (Native) |
 
 ## 라이선스 (판매 시 필수)
 

@@ -136,7 +136,9 @@ const WorkflowEditor: React.FC = () => {
           <button className="btn-secondary" onClick={() => addNode('sandbox', 'Python Sandbox')}>+ Python Sandbox</button>
           <button className="btn-secondary" onClick={() => addNode('crawl', 'Web Crawl')}>+ Web Crawl</button>
           <button className="btn-secondary" onClick={() => addNode('search', 'Web Search')}>+ Web Search</button>
+          <button className="btn-secondary" onClick={() => addNode('browse', 'Browser (RPA)')}>+ Browser Use</button>
           <button className="btn-secondary" onClick={() => addNode('slides', 'Slides Generator')}>+ Slides Generator</button>
+          <button className="btn-secondary" onClick={() => addNode('sheets', 'Sheets Manager')}>+ Sheets Manager</button>
           <button className="btn-secondary" onClick={() => addNode('rag', 'Knowledge Retrieval')}>+ RAG Node</button>
         </div>
       </div>
@@ -282,6 +284,33 @@ const WorkflowEditor: React.FC = () => {
                 placeholder="Make a 5-slide presentation about AI agents..."
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', resize: 'vertical' }} 
               />
+            </div>
+          )}
+
+          {selectedNode.data.type === 'sheets' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Spreadsheet Data Prompt</label>
+              <textarea 
+                rows={4}
+                value={(selectedNode.data.prompt as string) || ''} 
+                onChange={(e) => updateNodeData(selectedNode.id, 'prompt', e.target.value)}
+                placeholder="Generate a table of top 5 tech companies and their stock tickers..."
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', resize: 'vertical' }} 
+              />
+            </div>
+          )}
+
+          {selectedNode.data.type === 'browse' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Target URL</label>
+              <input 
+                type="text" 
+                value={(selectedNode.data.url as string) || ''} 
+                onChange={(e) => updateNodeData(selectedNode.id, 'url', e.target.value)}
+                placeholder="https://example.com"
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }} 
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>* Loads JS and returns screenshot + text</p>
             </div>
           )}
 

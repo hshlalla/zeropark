@@ -122,6 +122,29 @@ class DAGOrchestrator:
         elif node_type == "slides":
             self.context[f"{node.id}_result"] = "Slides Engine Triggered: (Artifact generated in artifact store)"
 
+        elif node_type == "browse":
+            from zeropark_engines.browse import PlaywrightBrowseEngine
+            from zeropark_core import ArtifactStore
+            from zeropark_core.models import TaskRequest
+            import os
+            
+            url_template = data.get("url", "")
+            for k, v in self.context.items():
+                url_template = url_template.replace(f"{{{{{k}}}}}", str(v))
+                
+            store = ArtifactStore(base_dir=os.path.join(os.getcwd(), "data", "artifacts"))
+            engine = PlaywrightBrowseEngine(store=store)
+            task = TaskRequest(mode="browse", prompt=url_template, params={"url": url_template})
+            
+            try:
+                result = await engine.cap_browse(task, task_id=node.id)
+                self.context[f"{node.id}_result"] = result.artifacts[1].inline if (result.artifacts and len(result.artifacts) > 1) else "Browse failed"
+            except Exception as e:
+                self.context[f"{node.id}_result"] = f"Browse Error: {e}"
+
+        elif node_type == "sheets":
+            self.context[f"{node.id}_result"] = "Sheets Engine Triggered: (Excel Artifact generated in store)"
+
         elif node_type == "output":
             # Output node aggregates or logs results
             pass
