@@ -24,8 +24,10 @@ from zeropark_core.errors import NoProviderForCapability, ProviderNotConfigured,
 from zeropark_core.provider import Provider
 from zeropark_engines import build_registry
 
-from zeropark_gateway.auth import get_current_user, get_current_admin_user, create_access_token, verify_password, get_password_hash
+from zeropark_gateway.auth import get_current_user, get_current_admin_user, auth_router
+from zeropark_gateway.admin import admin_router
 from zeropark_gateway.catalog import get_reference_catalog
+from zeropark_gateway.exceptions import setup_exception_handlers
 from zeropark_gateway.models import (
     CrawlRequest,
     RouteRequest,
@@ -33,6 +35,13 @@ from zeropark_gateway.models import (
     SlidesRequest,
     TaskCreateRequest,
 )
+
+class RagUploadRequest(BaseModel):
+    texts: list[str]
+
+class RagQueryRequest(BaseModel):
+    query: str
+    provider_id: str | None = None
 
 
 def build_state() -> tuple[ProviderRegistry, Router]:
@@ -66,6 +75,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
+    setup_exception_handlers(app)
+    
     registry, router = build_state()
     app.state.registry = registry
     app.state.router = router
@@ -75,38 +86,8 @@ def create_app() -> FastAPI:
         # Initialize SQLite tables
         await init_db()
 
-    # Dummy in-memory DB for quick login test without full user registration flow
-    fake_users_db = {
-        "admin": {
-            "username": "admin",
-            "full_name": "Admin User",
-            "email": "admin@example.com",
-            "hashed_password": get_password_hash("secret"),
-            "disabled": False,
-            "role": "admin"
-        },
-        "user1": {
-            "username": "user1",
-            "full_name": "Normal User",
-            "email": "user1@example.com",
-            "hashed_password": get_password_hash("secret"),
-            "disabled": False,
-            "role": "user"
-        }
-    }
-
-    @app.post("/auth/login")
-    async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-        user_dict = fake_users_db.get(form_data.username)
-        if not user_dict:
-            raise HTTPException(status_code=400, detail="Incorrect username or password")
-        if not verify_password(form_data.password, user_dict["hashed_password"]):
-            raise HTTPException(status_code=400, detail="Incorrect username or password")
-        
-        access_token = create_access_token(
-            data={"sub": user_dict["username"], "role": user_dict["role"]}
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
+    app.include_router(auth_router)
+    app.include_router(admin_router)
 
     def _router(request: Request) -> Router:
         return request.app.state.router
@@ -198,16 +179,24 @@ def create_app() -> FastAPI:
             
         return {"task_id": "dummy", "plan": [c.value for c in plan.pipeline]}
 
-    @app.get("/api/v1/admin/system-status")
-    async def get_system_status(current_admin: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-        """Admin only endpoint to get system status."""
-        print(f"Admin API accessed by {current_admin['user_id']}")
-        return {
-            "status": "healthy",
-            "active_users": 42,
-            "running_tasks": 3,
-            "sandbox_type": "DockerSandbox"
+    @app.post("/api/v1/rag/upload")
+    async def rag_upload(request: Request, body: RagUploadRequest, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+        params = {
+            "context_texts": body.texts,
+            "user_role": current_user["role"]
         }
+        return await _run_capability(
+            request, Capability.RAG, "upload_only", params, None
+        )
+
+    @app.post("/api/v1/rag/query")
+    async def rag_query(request: Request, body: RagQueryRequest, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+        params = {
+            "user_role": current_user["role"]
+        }
+        return await _run_capability(
+            request, Capability.RAG, body.query, params, body.provider_id
+        )
 
     @app.post("/search")
     async def search(request: Request, body: SearchRequest) -> dict[str, Any]:

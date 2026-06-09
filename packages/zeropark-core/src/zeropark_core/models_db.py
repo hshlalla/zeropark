@@ -13,8 +13,10 @@ class User(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True) # Nullable for OAuth users
     full_name = Column(String, nullable=True)
+    provider = Column(String, default="local") # e.g., 'local', 'google'
+    provider_id = Column(String, nullable=True, index=True) # e.g., google user ID
     role = Column(String, default="user")  # 'admin', 'user'
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
