@@ -2,20 +2,39 @@
 .env.*
 !.env.example
 
+# Python cache & virtualenvs
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .venv/
 venv/
+ENV/
+pytest-cache-files-*/
 
+# Node/Web Build outputs
 node_modules/
 .next/
 dist/
 build/
 coverage/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # OSS design-reference checkouts — not part of the build
 external/
@@ -23,6 +42,10 @@ external/
 # generated artifacts
 artifacts/
 
+# Logs and databases
 *.log
 *.tmp
 *.bak
+*.db
+*.sqlite3
+
