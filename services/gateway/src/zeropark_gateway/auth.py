@@ -170,10 +170,10 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db_session))
         return RedirectResponse(url=f"{frontend_url}/auth/callback?token={our_token}")
 
 @auth_router.post("/guest/login")
-async def guest_login():
-    """Generates a mock admin JWT for testing without Google OAuth."""
-    # Create an admin access token bypassing DB checks
+async def guest_login(role: str = "admin"):
+    """Generates a mock JWT for testing without Google OAuth."""
+    # Create an access token bypassing DB checks, with the requested role
     access_token = create_access_token(
-        data={"sub": "guest-admin-001", "role": "admin"}
+        data={"sub": f"guest-{role}-001", "role": role}
     )
-    return {"access_token": access_token, "token_type": "bearer", "user": {"email": "guest@zeropark.local", "role": "admin"}}
+    return {"access_token": access_token, "token_type": "bearer", "user": {"email": f"guest_{role}@zeropark.local", "role": role}}

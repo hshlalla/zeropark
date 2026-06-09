@@ -9,14 +9,16 @@ const Login: React.FC = () => {
     window.location.href = 'http://localhost:8000/api/v1/auth/google/login';
   };
 
-  const handleGuestLogin = async () => {
+  const handleGuestLogin = async (role: string) => {
     try {
-      const res = await fetch('http://localhost:8000/api/v1/auth/guest/login', {
+      const res = await fetch(`http://localhost:8000/api/v1/auth/guest/login?role=${role}`, {
         method: 'POST',
       });
       if (res.ok) {
         const data = await res.json();
         setToken(data.access_token);
+        // Store user info briefly for frontend use
+        localStorage.setItem('zp_user', JSON.stringify(data.user));
         window.location.href = '/dashboard';
       } else {
         console.error("Guest login failed");
@@ -73,13 +75,23 @@ const Login: React.FC = () => {
           Continue with Google
         </button>
 
-        <button 
-          onClick={handleGuestLogin} 
-          className="btn-primary w-full"
-          style={{ height: '48px', fontSize: '1rem', backgroundColor: 'var(--text-secondary)' }}
-        >
-          Guest Login (Test)
-        </button>
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+          <button 
+            onClick={() => handleGuestLogin('admin')} 
+            className="btn-primary w-full"
+            style={{ height: '48px', fontSize: '0.9rem', backgroundColor: 'var(--primary-color)' }}
+          >
+            Guest (Admin)
+          </button>
+
+          <button 
+            onClick={() => handleGuestLogin('user')} 
+            className="btn-primary w-full"
+            style={{ height: '48px', fontSize: '0.9rem', backgroundColor: 'var(--text-secondary)' }}
+          >
+            Guest (User)
+          </button>
+        </div>
       </div>
     </div>
   );
