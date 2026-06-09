@@ -139,6 +139,7 @@ const WorkflowEditor: React.FC = () => {
           <button className="btn-secondary" onClick={() => addNode('browse', 'Browser (RPA)')}>+ Browser Use</button>
           <button className="btn-secondary" onClick={() => addNode('slides', 'Slides Generator')}>+ Slides Generator</button>
           <button className="btn-secondary" onClick={() => addNode('sheets', 'Sheets Manager')}>+ Sheets Manager</button>
+          <button className="btn-secondary" onClick={() => addNode('mcp', 'Custom MCP Client')}>+ Custom MCP</button>
           <button className="btn-secondary" onClick={() => addNode('rag', 'Knowledge Retrieval')}>+ RAG Node</button>
         </div>
       </div>
@@ -311,6 +312,51 @@ const WorkflowEditor: React.FC = () => {
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }} 
               />
               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>* Loads JS and returns screenshot + text</p>
+            </div>
+          )}
+
+          {selectedNode.data.type === 'mcp' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Command</label>
+                <input 
+                  type="text" 
+                  value={(selectedNode.data.command as string) || ''} 
+                  onChange={(e) => updateNodeData(selectedNode.id, 'command', e.target.value)}
+                  placeholder="npx, uvx, python"
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Arguments</label>
+                <input 
+                  type="text" 
+                  value={(selectedNode.data.args as string) || ''} 
+                  onChange={(e) => updateNodeData(selectedNode.id, 'args', e.target.value)}
+                  placeholder="-y @modelcontextprotocol/server-everything"
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Tool Name</label>
+                <input 
+                  type="text" 
+                  value={(selectedNode.data.toolName as string) || ''} 
+                  onChange={(e) => updateNodeData(selectedNode.id, 'toolName', e.target.value)}
+                  placeholder="echo, search, etc."
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Tool Args (JSON)</label>
+                <textarea 
+                  rows={3}
+                  value={(selectedNode.data.toolArgs as string) || ''} 
+                  onChange={(e) => updateNodeData(selectedNode.id, 'toolArgs', e.target.value)}
+                  placeholder='{"message": "Hello"}'
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px', resize: 'vertical' }} 
+                />
+              </div>
             </div>
           )}
 

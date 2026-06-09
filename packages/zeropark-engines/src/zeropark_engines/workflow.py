@@ -145,6 +145,40 @@ class DAGOrchestrator:
         elif node_type == "sheets":
             self.context[f"{node.id}_result"] = "Sheets Engine Triggered: (Excel Artifact generated in store)"
 
+        elif node_type == "mcp":
+            import json
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+            
+            command = data.get("command", "npx")
+            args_str = data.get("args", "-y @modelcontextprotocol/server-everything")
+            tool_name = data.get("toolName", "echo")
+            tool_args_str = data.get("toolArgs", "{}")
+            
+            # Context Variable Mapping (e.g. {{input_1_result}})
+            for k, v in self.context.items():
+                args_str = args_str.replace(f"{{{{{k}}}}}", str(v))
+                tool_args_str = tool_args_str.replace(f"{{{{{k}}}}}", str(v))
+                
+            try:
+                tool_args = json.loads(tool_args_str)
+                server_params = StdioServerParameters(
+                    command=command,
+                    args=args_str.split(),
+                    env=None
+                )
+                
+                async with stdio_client(server_params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.call_tool(tool_name, arguments=tool_args)
+                        # Extract textual result from MCP response
+                        texts = [content.text for content in result.content if content.type == "text"]
+                        self.context[f"{node.id}_result"] = "\n".join(texts)
+                        
+            except Exception as e:
+                self.context[f"{node.id}_result"] = f"MCP Error: {e}"
+
         elif node_type == "output":
             # Output node aggregates or logs results
             pass
