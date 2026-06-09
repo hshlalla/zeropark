@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from zeropark_core import Capability, ProviderRegistry, Router, TaskRequest, ZeroparkSettings
 from zeropark_core.errors import NoProviderForCapability, ProviderNotConfigured, ZeroparkError
@@ -49,6 +50,15 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="HTTP API for the Zeropark native AI-workspace framework.",
     )
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
     registry, router = build_state()
     app.state.registry = registry
     app.state.router = router

@@ -56,7 +56,7 @@ flowchart LR
 | W-13 | research v1(인용 리포트) | 3 | 완료 ✅ |
 | W-14 | crawl v2(JS·추출·딥크롤) | 3 | Playwright·fit-markdown |
 | W-15 | browse v1 | 3 | 완료 ✅ |
-| W-16 | SSE 스트리밍 + Web Shell | 3 | RunEvent |
+| W-16 | SSE 스트리밍 + Web Shell | 3 | 완료 ✅ |
 | W-17 | super_agent(샌드박스) | 4 | 플래너+서브에이전트 |
 | W-18 | slides v2(LLM·템플릿·차트·PDF) | 4 | LLM 자동생성 완료 |
 | W-19 | sheets v1 / dashboard v1 | 4 | sheets 완료, dashboard 대기 |

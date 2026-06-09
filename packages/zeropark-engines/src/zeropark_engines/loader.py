@@ -20,6 +20,7 @@ from zeropark_engines.slides import PptxSlidesEngine, LLMSlidesEngine
 from zeropark_engines.sheets import OpenpyxlSheetsEngine, LLMSheetsEngine
 from zeropark_engines.research import ResearchEngine
 from zeropark_engines.browse import PlaywrightBrowseEngine
+from zeropark_engines.super_agent import SuperAgentEngine
 from zeropark_core.llm import OpenAILLMClient
 
 
@@ -59,5 +60,8 @@ def build_registry(
             
             # Register LLMSheetsEngine
             registry.register(LLMSheetsEngine(llm_client=llm_client, renderer=xlsx_renderer))
+            
+            # Register SuperAgentEngine
+            registry.register(SuperAgentEngine(output_dir=output_dir))
             
     return registry

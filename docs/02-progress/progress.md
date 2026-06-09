@@ -30,6 +30,7 @@ updated_at: 2026-06-09
 - **Slides 콘텐츠 자동 생성 (LLM 연동)** (`LLMSlidesEngine`) 구현 완료.
 - **Sheets 콘텐츠 자동 생성 (openpyxl & LLM 연동)** (`LLMSheetsEngine`) 구현 완료.
 - **Browse 웹 자동화 엔진 (Playwright 연동)** (`PlaywrightBrowseEngine`) 구현 완료.
+- **Web Shell 프론트엔드 UI (React+Vite)** (`packages/zeropark-web`) 구현 완료.
 - `zeropark-engines`: NativeEngine + **crawl(httpx+markdownify) 구현**, **slides(python-pptx) 구현**, search(옵션) + loader.
 - `services/gateway`: 코어/엔진에 위임하는 얇은 FastAPI(13 routes).
 - 방향 피벗: 엔진 API 호출/격리 서비스 폐기 → 네이티브 단일 프레임워크. `zeropark-adapters`(HTTP) 폐기.
@@ -43,8 +44,7 @@ updated_at: 2026-06-09
 
 ## 진행 중 / 다음
 
-- [ ] `external/` 참고본 커밋 핀 기록.
-- [ ] (정정) git 초기 커밋 + 브랜치 master→main.
+- [x] `external/` 참고본 커밋 핀 기록.
 
 ## 블로커
 
