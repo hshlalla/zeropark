@@ -26,6 +26,7 @@ from zeropark_core.models import (
 from zeropark_core.provider import Provider
 from zeropark_core.registry import ProviderRegistry
 from zeropark_core.router import DEFAULT_MODES, ModePlan, Router
+from zeropark_core.store import ArtifactStore, LocalArtifactStore
 
 __all__ = [
     "Capability",
@@ -38,6 +39,8 @@ __all__ = [
     "CapabilityNotImplemented",
     "NoProviderForCapability",
     "Artifact",
+    "ArtifactStore",
+    "LocalArtifactStore",
     "ProviderHealth",
     "RunEvent",
     "SourceRef",

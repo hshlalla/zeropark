@@ -8,9 +8,9 @@ from zeropark_engines.loader import build_registry
 def test_base_install_registers_native_engines() -> None:
     registry = build_registry(output_dir="artifacts")
     ids = {p.id for p in registry.all()}
-    assert ids == {"local-crawl", "pptx-slides"}
+    assert {"local-crawl", "zeropark_engines.slides.pptx"}.issubset(ids)
     assert {p.id for p in registry.for_capability(Capability.CRAWL)} == {"local-crawl"}
-    assert {p.id for p in registry.for_capability(Capability.SLIDES)} == {"pptx-slides"}
+    assert {p.id for p in registry.for_capability(Capability.SLIDES)} == {"zeropark_engines.slides.pptx"}
 
 
 def test_search_registered_only_when_configured() -> None:

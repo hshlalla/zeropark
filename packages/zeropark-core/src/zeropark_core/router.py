@@ -1,17 +1,15 @@
-"""Router: maps a product *mode* to capabilities, then to concrete providers.
+"""Router: maps a product *mode* to capabilities, then to concrete engines.
 
-Two separations of concern live here, and they matter for long-term cleanliness:
+Two separations of concern, both important for long-term cleanliness:
 
   1. mode -> capabilities (ModePlan): what a user-facing mode like "research"
-     actually needs (search, then crawl, then research). This is product policy.
-
-  2. capability -> provider (select/resolve): which engine serves a capability
-     in THIS deployment. This is configuration (registry + preferences).
+     needs (search, then crawl, then research). Product policy.
+  2. capability -> engine (select/resolve): which engine serves a capability in
+     THIS deployment. Configuration (registry + preferences).
 
 Business logic and the web UI speak in modes and capabilities. Engine ids appear
-only in `preferences` config and inside adapters. Add a mode = add a ModePlan.
-Re-point a capability to a different engine = change one preference list. Neither
-requires touching execution code.
+only in `preferences` config and inside engines. Add a mode = add a ModePlan.
+Re-point a capability to a different engine = change one preference list.
 """
 
 from __future__ import annotations
@@ -76,6 +74,36 @@ DEFAULT_MODES: dict[str, ModePlan] = {
         (Capability.WORKFLOW,),
         "Run a configured workflow / RAG app.",
     ),
+    "rag": ModePlan(
+        "rag",
+        Capability.RAG,
+        (Capability.RAG,),
+        "Chat with memory and vector search.",
+    ),
+    "image": ModePlan(
+        "image",
+        Capability.IMAGE,
+        (Capability.IMAGE,),
+        "Generate an image.",
+    ),
+    "page": ModePlan(
+        "page",
+        Capability.PAGE,
+        (Capability.RESEARCH, Capability.PAGE),
+        "Generate and publish a web page.",
+    ),
+    "podcast": ModePlan(
+        "podcast",
+        Capability.AUDIO,
+        (Capability.RESEARCH, Capability.AUDIO),
+        "Generate a narrated audio / podcast.",
+    ),
+    "chat": ModePlan(
+        "chat",
+        Capability.CHAT,
+        (Capability.CHAT,),
+        "Conversational question answering.",
+    ),
 }
 
 
@@ -83,7 +111,7 @@ DEFAULT_MODES: dict[str, ModePlan] = {
 class Router:
     registry: ProviderRegistry
     modes: dict[str, ModePlan] = field(default_factory=lambda: dict(DEFAULT_MODES))
-    # capability value -> ordered preferred provider ids
+    # capability value -> ordered preferred engine ids
     preferences: dict[str, list[str]] = field(default_factory=dict)
 
     def plan(self, mode: str) -> ModePlan:
@@ -96,11 +124,8 @@ class Router:
         return list(self.modes.keys())
 
     def select(self, capability: Capability, *, prefer: str | None = None) -> Provider:
-        """Pick one provider for a capability.
-
-        Order of precedence: explicit `prefer` pin -> configured preference list
-        -> first registered provider that supports it.
-        """
+        """Pick one engine for a capability: explicit pin -> preference list ->
+        first registered engine that supports it."""
         candidates = self.registry.for_capability(capability)
         if not candidates:
             raise NoProviderForCapability(capability)
@@ -116,16 +141,14 @@ class Router:
         return candidates[0]
 
     def resolve(self, mode: str, *, prefer: str | None = None) -> dict[Capability, Provider]:
-        """Resolve every capability in a mode's pipeline to a concrete provider.
-
-        Capabilities with no available provider are skipped (a deployment may not
-        install every engine); the caller can inspect which were resolved.
-        """
+        """Resolve every capability in a mode's pipeline to a concrete engine.
+        Capabilities with no available engine are skipped (partial deployments)."""
+        plan = self.plan(mode)
         chosen: dict[Capability, Provider] = {}
-        for capability in self.plan(mode).pipeline:
+        for capability in plan.pipeline:
             try:
                 chosen[capability] = self.select(
-                    capability, prefer=prefer if capability == self.plan(mode).primary else None
+                    capability, prefer=prefer if capability == plan.primary else None
                 )
             except NoProviderForCapability:
                 continue

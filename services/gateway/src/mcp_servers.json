@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "customer_erp": {
+            "command": "python",
+            "args": ["c:/Users/CNXK/Documents/Zeropark/tests/dummy_customer_mcp.py"]
+        }
+    }
+}

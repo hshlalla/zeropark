@@ -5,12 +5,14 @@ import asyncio
 from pptx import Presentation
 from zeropark_core.capabilities import Capability
 from zeropark_core.models import TaskRequest
+from zeropark_core.store import LocalArtifactStore
 
 from zeropark_engines.slides import PptxSlidesEngine
 
 
 def test_slides_renders_real_pptx(tmp_path) -> None:
-    engine = PptxSlidesEngine(output_dir=str(tmp_path))
+    store = LocalArtifactStore(base_dir=str(tmp_path))
+    engine = PptxSlidesEngine(store=store)
     task = TaskRequest(
         prompt="Quarterly review",
         capability=Capability.SLIDES,
