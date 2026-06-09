@@ -11,44 +11,46 @@ updated_at: 2026-06-09
 
 | Phase | 마일스톤 | 핵심 목표 | 상태 |
 |---|---|---|---|
-| 1 | **인프라 & 보안 컨테이너** | PostgreSQL DB 셋업, OAuth 로그인, Docker 샌드박스 격리 | ⏳ |
-| 2 | **RBAC & Admin 대시보드** | 사용자 권한(Admin/User) 분리, 토큰 모니터링 Admin 페이지 구성 | ⏳ |
-| 3 | **Advanced RAG (Knowledge Base)** | 벡터 DB(Milvus 등) 연동, UI 기반 문서 업로드 및 청킹 제어 | ⏳ |
-| 4 | **Visual Workflow Builder** | React Flow 기반 다중 에이전트 노드 에디터 구축 | ⏳ |
-| 5 | **Ecosystem (MCP & IM)** | MCP HTTP/SSE 배포, Slack/Teams 봇 연동 및 스킬 시스템 플러그인화 | ⏳ |
+| 18 | **Docker 3-Tier 아키텍처 도입** | React + FastAPI + Qdrant + Redis의 엔터프라이즈 컨테이너 배포망 구축 | ✅ |
+| 19 | **Custom MCP 지원** | 외부 Node.js 기반 MCP 서버를 워크플로 엔진에 네이티브로 연동 | ✅ |
+| 20 | **Backend DB Persistence** | SQLite 기반 Repository 패턴으로 대화와 워크플로 데이터 영속성 확보 | ✅ |
+| 21 | **Redis Cache-Aside 최적화** | Redis를 도입하여 병목구간(DB I/O) 제거 및 1ms 응답속도 확보 | ✅ |
+| 22 | **채팅 렌더링 & LLM 토큰 최적화** | 프론트엔드 DOM 방어 및 백엔드 Context Truncation 도입 | ✅ |
+| 23 | **Admin 대시보드 통계 파이프라인** | 백엔드 DB와 연동하여 총 워크플로 및 대화 횟수를 실시간 렌더링 | ✅ |
+| 24 | **공식 문서 총정리 및 동기화** | `README.md`, `project.yml`, `architecture.md` 등에 신규 아키텍처 스펙 반영 | ✅ |
 
 ## 2. 작업 분해 (WBS 상세)
 
-### Phase 1: 인프라 & 보안 컨테이너
-| WBS | 작업 내용 | 담당 | 상태 |
-|---|---|---|---|
-| 2-01 | PostgreSQL DB 연동 (SQLAlchemy / Alembic) | - | ⏳ |
-| 2-02 | OAuth 2.0 (Google 등) 소셜 로그인 구현 | - | ⏳ |
-| 2-03 | Docker 기반 파이썬 샌드박스 엔진(`DockerSandbox`) 구현 | - | ⏳ |
+### Phase 18: Docker 3-Tier 아키텍처
+| WBS | 작업 내용 | 상태 |
+|---|---|---|
+| 18-01 | `docker-compose.yml` 셋업 (Web, API, Qdrant, Redis) | ✅ |
+| 18-02 | 프론트엔드 및 백엔드 포트 포워딩 및 통신 테스트 | ✅ |
+| 18-03 | Docker-in-Docker 샌드박스 격리 기능 연동 | ✅ |
 
-### Phase 2: RBAC & Admin 대시보드
-| WBS | 작업 내용 | 담당 | 상태 |
-|---|---|---|---|
-| 2-04 | User / Workspace / Role 데이터 모델 설계 | - | ⏳ |
-| 2-05 | FastAPI 전역 권한 인증 미들웨어(Middleware) 추가 | - | ⏳ |
-| 2-06 | Admin 전용 대시보드 UI (사용자 관리, 비용 통계) | - | ⏳ |
+### Phase 19: Custom MCP & Workflow
+| WBS | 작업 내용 | 상태 |
+|---|---|---|
+| 19-01 | MCP Client 연동 모듈 개발 | ✅ |
+| 19-02 | 워크플로 DAG 노드에 MCP 툴(Node.js) 호출 로직 통합 | ✅ |
 
-### Phase 3: Advanced RAG
-| WBS | 작업 내용 | 담당 | 상태 |
-|---|---|---|---|
-| 2-07 | Milvus / Qdrant VectorDB 컨테이너 세팅 | - | ⏳ |
-| 2-08 | 프론트엔드 문서 업로드 화면 및 파싱(청크/오버랩) 튜닝 UI | - | ⏳ |
-| 2-09 | 문서 접근 권한(ACL) 필터링이 적용된 하이브리드 검색 구현 | - | ⏳ |
+### Phase 20: Backend DB Persistence
+| WBS | 작업 내용 | 상태 |
+|---|---|---|
+| 20-01 | `SQLAlchemy` 기반 `User`, `ChatSession`, `Workflow` 모델 설계 | ✅ |
+| 20-02 | Repository 패턴 기반 CRUD 파이프라인 구축 | ✅ |
 
-### Phase 4: Visual Workflow Builder (Dify 스타일)
-| WBS | 작업 내용 | 담당 | 상태 |
-|---|---|---|---|
-| 2-10 | React Flow 프론트엔드 캔버스 및 노드 컴포넌트 개발 | - | ⏳ |
-| 2-11 | 백엔드 동적 라우터 및 DAG(Directed Acyclic Graph) 파서 구현 | - | ⏳ |
+### Phase 21: Redis Caching
+| WBS | 작업 내용 | 상태 |
+|---|---|---|
+| 21-01 | `redis-py` 클라이언트 및 싱글톤 매니저 구현 | ✅ |
+| 21-02 | `ChatRepository` 에 Cache-Aside(캐시 우선) 패턴 적용 | ✅ |
 
-### Phase 5: Ecosystem
-| WBS | 작업 내용 | 담당 | 상태 |
-|---|---|---|---|
-| 2-12 | MCP 클라이언트/서버 HTTP SSE 통신 모듈 확장 | - | ⏳ |
-| 2-13 | Slack App 연동 봇 서버 작성 | - | ⏳ |
-| 2-14 | 스킬 마켓플레이스 레지스트리 구조 확립 | - | ⏳ |
+### Phase 22~23: 성능 및 모니터링
+| WBS | 작업 내용 | 상태 |
+|---|---|---|
+| 22-01 | `AppViewer.tsx` 에 `slice(-50)` 도입 (DOM 메모리 오버플로우 방어) | ✅ |
+| 22-02 | `llm.py` 에 최근 10턴 Context Truncation 적용 (API 토큰 낭비 방어) | ✅ |
+| 23-01 | `admin.py` 통계 API(`StatsResponse`)에 Workflow, Chat 누적 개수 집계 로직 추가 | ✅ |
+| 23-02 | `Dashboard.tsx` 에 실시간 통계 표출용 Glass Panel UI 구현 | ✅ |
+
