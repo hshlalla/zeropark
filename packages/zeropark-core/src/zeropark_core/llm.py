@@ -46,7 +46,12 @@ class OpenAILLMClient(BaseLLMClient):
         max_tokens: Optional[int] = None,
         **kwargs
     ) -> ChatResponse:
-        oai_messages = [{"role": m.role, "content": m.content} for m in messages]
+        # Context Window Truncation: Keep System message + last 10 messages to save tokens
+        system_msgs = [m for m in messages if m.role == "system"]
+        recent_msgs = [m for m in messages if m.role != "system"][-10:]
+        optimized_messages = system_msgs + recent_msgs
+        
+        oai_messages = [{"role": m.role, "content": m.content} for m in optimized_messages]
         
         create_kwargs = {
             "model": model,

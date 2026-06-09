@@ -142,7 +142,8 @@ const AppViewer: React.FC = () => {
 
       {/* Chat Area */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {messages.map(msg => (
+        {/* Only render the last 50 messages to prevent DOM overload */}
+        {messages.slice(-50).map(msg => (
           <div key={msg.id} style={{
             display: 'flex',
             gap: '1rem',
