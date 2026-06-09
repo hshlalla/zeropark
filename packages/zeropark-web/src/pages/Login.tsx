@@ -24,7 +24,11 @@ const Login: React.FC = () => {
         console.error("Guest login failed");
       }
     } catch (e) {
-      console.error(e);
+      console.warn("Backend is not running. Using fallback mock login for UI testing.", e);
+      // Fallback logic for when backend is offline
+      setToken(`mock_token_${role}`);
+      localStorage.setItem('zp_user', JSON.stringify({ email: `guest_${role}@zeropark.local`, role: role }));
+      window.location.href = '/dashboard';
     }
   };
 
