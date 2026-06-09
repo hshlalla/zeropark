@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func
 
 from zeropark_core.database import get_db_session
-from zeropark_core.models_db import User
+from zeropark_core.models_db import User, Workflow, ChatSession
 from zeropark_gateway.auth import get_current_admin_user
 
 # Enforce that all routes in this router require admin privileges
@@ -32,6 +32,8 @@ class StatsResponse(BaseModel):
     local_users: int
     google_users: int
     admin_users: int
+    total_workflows: int
+    total_chats: int
 
 @admin_router.get("/users", response_model=List[UserResponse])
 async def get_users(
@@ -92,9 +94,17 @@ async def get_stats(db: AsyncSession = Depends(get_db_session)):
     admin_result = await db.execute(select(func.count(User.id)).where(User.role == "admin"))
     admin_users = admin_result.scalar() or 0
     
+    workflow_result = await db.execute(select(func.count(Workflow.id)))
+    total_workflows = workflow_result.scalar() or 0
+    
+    chat_result = await db.execute(select(func.count(ChatSession.id)))
+    total_chats = chat_result.scalar() or 0
+    
     return StatsResponse(
         total_users=total_users,
         local_users=local_users,
         google_users=google_users,
-        admin_users=admin_users
+        admin_users=admin_users,
+        total_workflows=total_workflows,
+        total_chats=total_chats
     )

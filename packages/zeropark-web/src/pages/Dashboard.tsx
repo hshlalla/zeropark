@@ -178,6 +178,14 @@ const Dashboard: React.FC = () => {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Available Templates</p>
               <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{Object.keys(modes).length}</h3>
             </div>
+            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Total Workflows</p>
+              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.total_workflows !== undefined ? stats.total_workflows : '-'}</h3>
+            </div>
+            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Chat Sessions</p>
+              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.total_chats !== undefined ? stats.total_chats : '-'}</h3>
+            </div>
           </div>
         </div>
       )}
