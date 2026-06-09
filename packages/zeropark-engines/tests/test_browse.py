@@ -3,12 +3,16 @@ import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from zeropark_core.models import TaskRequest, TaskStatus
+from zeropark_core.store import LocalArtifactStore
 from zeropark_engines.browse import PlaywrightBrowseEngine
+
+from zeropark_core.capabilities import Capability
 
 @pytest.mark.asyncio
 async def test_browse_engine_flow(tmp_path):
-    engine = PlaywrightBrowseEngine(output_dir=str(tmp_path))
-    req = TaskRequest(prompt="http://test.com", params={"headless": True})
+    store = LocalArtifactStore(base_dir=str(tmp_path))
+    engine = PlaywrightBrowseEngine(store=store)
+    req = TaskRequest(prompt="http://test.com", capability=Capability.CRAWL, params={"headless": True})
     
     # Mocking playwright.async_api.async_playwright
     mock_async_playwright = MagicMock()
@@ -19,6 +23,7 @@ async def test_browse_engine_flow(tmp_path):
     
     mock_page.content = AsyncMock(return_value="<html><body><h1>Test Page</h1></body></html>")
     mock_page.title = AsyncMock(return_value="Test Title")
+    mock_page.screenshot = AsyncMock(return_value=b"fake image bytes")
     
     mock_context.new_page = AsyncMock(return_value=mock_page)
     mock_browser.new_context = AsyncMock(return_value=mock_context)

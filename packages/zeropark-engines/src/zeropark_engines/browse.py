@@ -10,7 +10,7 @@ import base64
 
 from zeropark_core.capabilities import Capability
 from zeropark_core import ArtifactStore
-from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus
+from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus, SourceRef
 from zeropark_engines.base import NativeEngine
 from zeropark_engines.crawl import html_to_markdown
 
@@ -85,7 +85,7 @@ class PlaywrightBrowseEngine(NativeEngine):
         # 1. Image Artifact
         artifacts.append(Artifact(
             id=self.new_id("screenshot"),
-            kind="image",
+            kind="file",
             title=f"Screenshot of {page_title or url}",
             mime_type="image/png",
             uri=file_uri

@@ -1,5 +1,6 @@
 from typing import Any, List
 from pydantic import Field
+from zeropark_core.capabilities import Capability
 
 from zeropark_core.tools import BaseTool, ToolSpec, ToolParameter
 from zeropark_core.models import TaskRequest
@@ -25,6 +26,7 @@ class SearchTool(BaseTool):
         # Create a dummy TaskRequest to pass into cap_search
         task = TaskRequest(
             prompt=query,
+            capability=Capability.SEARCH,
             params={"limit": limit}
         )
         # SearchEngine expects (task, task_id)
@@ -48,8 +50,10 @@ class CrawlTool(BaseTool):
         )
 
     async def execute(self, url: str, **kwargs) -> Any:
+        # Create a dummy TaskRequest to pass into cap_crawl
         task = TaskRequest(
             prompt="Crawl this url",
+            capability=Capability.CRAWL,
             params={"url": url}
         )
         result = await self.crawl_engine.cap_crawl(task, task_id="crawl_tool_internal")
