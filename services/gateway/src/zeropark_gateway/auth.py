@@ -18,7 +18,7 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "your-google-client-id")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "your-google-client-secret")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
 
-auth_router = APIRouter(prefix="/auth", tags=["auth"])
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # Secret keys and algorithm
 SECRET_KEY = os.environ.get("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7") # Change in production
@@ -164,4 +164,16 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db_session))
         our_token = create_access_token(
             data={"sub": user.id, "role": user.role}
         )
-        return {"access_token": our_token, "token_type": "bearer", "user": {"email": user.email, "role": user.role}}
+        
+        # Redirect to frontend callback route
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/auth/callback?token={our_token}")
+
+@auth_router.post("/guest/login")
+async def guest_login():
+    """Generates a mock admin JWT for testing without Google OAuth."""
+    # Create an admin access token bypassing DB checks
+    access_token = create_access_token(
+        data={"sub": "guest-admin-001", "role": "admin"}
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": {"email": "guest@zeropark.local", "role": "admin"}}
