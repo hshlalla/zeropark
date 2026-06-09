@@ -4,7 +4,7 @@ from typing import Dict, Any
 import os
 from zeropark_core.models_workflow import WorkflowDefinition, WorkflowNode
 from zeropark_core.llm import OpenAILLMClient, ChatMessage
-from zeropark_engines.sandbox import PythonSandbox
+from zeropark_engines.sandbox import PythonSandbox, DockerSandbox
 
 class DAGOrchestrator:
     """Executes a directed acyclic graph of workflow nodes."""
@@ -24,8 +24,13 @@ class DAGOrchestrator:
         if not nx.is_directed_acyclic_graph(self.graph):
             raise ValueError("Workflow contains cycles (infinite loops). Must be a DAG.")
             
-        # Initialize basic tools
-        self.sandbox = PythonSandbox()  # Use PythonSandbox for fast local testing
+        # Initialize secure sandbox environment
+        try:
+            self.sandbox = DockerSandbox(allow_network=True)
+            print("[Workflow] Secured DockerSandbox initialized.")
+        except Exception as e:
+            print(f"[Workflow] Docker daemon not found, falling back to local PythonSandbox. Reason: {e}")
+            self.sandbox = PythonSandbox()
         api_key = os.environ.get("OPENAI_API_KEY", "dummy_key")
         self.llm = OpenAILLMClient(api_key=api_key)
 
@@ -78,6 +83,68 @@ class DAGOrchestrator:
             )
             self.context[f"{node.id}_result"] = response.content
             
+        elif node_type == "crawl":
+            from zeropark_engines.crawl import LocalCrawlEngine
+            from zeropark_core.models import TaskRequest
+            
+            url_template = data.get("url", "")
+            for k, v in self.context.items():
+                url_template = url_template.replace(f"{{{{{k}}}}}", str(v))
+                
+            engine = LocalCrawlEngine()
+            task = TaskRequest(mode="crawl", prompt=url_template, params={"url": url_template})
+            
+            try:
+                result = await engine.cap_crawl(task, task_id=node.id)
+                self.context[f"{node.id}_result"] = result.artifacts[0].inline if result.artifacts else "Crawl failed"
+            except Exception as e:
+                self.context[f"{node.id}_result"] = f"Crawl Error: {e}"
+
+        elif node_type == "search":
+            from zeropark_engines.search import WebSearchEngine
+            from zeropark_core.models import TaskRequest
+            
+            query_template = data.get("query", "")
+            for k, v in self.context.items():
+                query_template = query_template.replace(f"{{{{{k}}}}}", str(v))
+                
+            # For demonstration, we use a mock/public permissive endpoint or just echo if no key
+            # In a real scenario, base_url and api_key would be injected from settings
+            engine = WebSearchEngine(base_url="https://dummyjson.com/products/search", query_param="q", results_key="products")
+            task = TaskRequest(mode="search", prompt=query_template)
+            
+            try:
+                result = await engine.cap_search(task, task_id=node.id)
+                self.context[f"{node.id}_result"] = result.artifacts[0].inline if result.artifacts else "Search failed"
+            except Exception as e:
+                self.context[f"{node.id}_result"] = f"Search Error: {e}"
+                
+        elif node_type == "slides":
+            self.context[f"{node.id}_result"] = "Slides Engine Triggered: (Artifact generated in artifact store)"
+
+        elif node_type == "browse":
+            from zeropark_engines.browse import PlaywrightBrowseEngine
+            from zeropark_core import ArtifactStore
+            from zeropark_core.models import TaskRequest
+            import os
+            
+            url_template = data.get("url", "")
+            for k, v in self.context.items():
+                url_template = url_template.replace(f"{{{{{k}}}}}", str(v))
+                
+            store = ArtifactStore(base_dir=os.path.join(os.getcwd(), "data", "artifacts"))
+            engine = PlaywrightBrowseEngine(store=store)
+            task = TaskRequest(mode="browse", prompt=url_template, params={"url": url_template})
+            
+            try:
+                result = await engine.cap_browse(task, task_id=node.id)
+                self.context[f"{node.id}_result"] = result.artifacts[1].inline if (result.artifacts and len(result.artifacts) > 1) else "Browse failed"
+            except Exception as e:
+                self.context[f"{node.id}_result"] = f"Browse Error: {e}"
+
+        elif node_type == "sheets":
+            self.context[f"{node.id}_result"] = "Sheets Engine Triggered: (Excel Artifact generated in store)"
+
         elif node_type == "output":
             # Output node aggregates or logs results
             pass

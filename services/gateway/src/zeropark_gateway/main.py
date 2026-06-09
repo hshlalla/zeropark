@@ -13,7 +13,7 @@ import asyncio
 from typing import Any, Dict
 
 import httpx
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -26,6 +26,7 @@ from zeropark_engines import build_registry
 
 from zeropark_gateway.auth import get_current_user, get_current_admin_user, auth_router
 from zeropark_gateway.admin import admin_router
+from zeropark_gateway.workflow import workflow_router
 from zeropark_gateway.catalog import get_reference_catalog
 from zeropark_gateway.exceptions import setup_exception_handlers
 from zeropark_gateway.models import (
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(workflow_router)
 
     def _router(request: Request) -> Router:
         return request.app.state.router
@@ -180,9 +182,16 @@ def create_app() -> FastAPI:
         return {"task_id": "dummy", "plan": [c.value for c in plan.pipeline]}
 
     @app.post("/api/v1/rag/upload")
-    async def rag_upload(request: Request, body: RagUploadRequest, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    async def rag_upload(request: Request, files: list[UploadFile] = File(...), current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+        texts = []
+        for file in files:
+            content = await file.read()
+            # Basic text extraction (assuming .txt files for now)
+            # In a real scenario, you'd use a PDF parser or similar here
+            texts.append(content.decode("utf-8", errors="ignore"))
+            
         params = {
-            "context_texts": body.texts,
+            "context_texts": texts,
             "user_role": current_user["role"]
         }
         return await _run_capability(
