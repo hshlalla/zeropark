@@ -4,13 +4,13 @@ This file tracks the public software we plan to use, how it maps to the product,
 
 | ID | Source | Role | License posture | Use decision |
 | --- | --- | --- | --- | --- |
-| `deer-flow` | https://github.com/bytedance/deer-flow | Core super-agent harness: planning, sub-agents, memory, sandboxes, skills | MIT | Adopt as core engine |
-| `dify` | https://github.com/langgenius/dify | Workflow builder, RAG, model management, observability, backend APIs | Modified Apache-2.0 style with extra conditions | Adopt with legal review before multi-tenant launch |
+| `deer-flow` | https://github.com/bytedance/deer-flow | Core super-agent harness: planning, sub-agents, memory, sandboxes, skills | MIT | Use as architectural reference |
+| `dify` | https://github.com/langgenius/dify | Workflow builder, RAG, model management, observability, backend APIs | Modified Apache-2.0 style with extra conditions | Use as architectural reference |
 | `openmanus` | https://github.com/FoundationAgents/OpenManus | General AI agent reference/prototype layer | MIT | Keep as fallback/reference |
-| `presenton` | https://github.com/presenton/presenton | AI presentation generation and editable PPTX/PDF export | Apache-2.0 | Adopt for slides |
-| `crawl4ai` | https://github.com/unclecode/crawl4ai | LLM-ready crawling, markdown conversion, structured extraction | Apache-2.0 plus attribution requirement | Adopt, include attribution |
+| `presenton` | https://github.com/presenton/presenton | AI presentation generation and editable PPTX/PDF export | Apache-2.0 | Use as architectural reference |
+| `crawl4ai` | https://github.com/unclecode/crawl4ai | LLM-ready crawling, markdown conversion, structured extraction | Apache-2.0 plus attribution requirement | Use as architectural reference |
 | `searxng` | https://github.com/searxng/searxng | Self-hosted metasearch | AGPL-3.0 | Use carefully behind internal boundary; review obligations |
-| `browser-use` | https://github.com/browser-use/browser-use | Browser automation for agents | MIT | Adopt for browser actions |
+| `browser-use` | https://github.com/browser-use/browser-use | Browser automation for agents | MIT | Use as architectural reference |
 | `coze-studio` | https://github.com/coze-dev/coze-studio | Visual agent/workflow builder alternative | Apache-2.0 from public repository metadata | Optional Dify alternative |
 | `ui-tars-desktop` | https://github.com/bytedance/UI-TARS-desktop | Multimodal GUI/computer-use stack | Apache-2.0 from public repository metadata | Optional advanced computer-use layer |
 

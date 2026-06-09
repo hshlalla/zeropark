@@ -10,6 +10,7 @@ import uuid
 import os
 import json
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 import httpx
@@ -62,15 +63,26 @@ def _provider_info(provider: Provider) -> dict[str, Any]:
 
 
 def create_app() -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await init_db()  # create DB tables on startup
+        yield
+
     app = FastAPI(
         title="Zeropark Gateway",
         version="0.1.0",
         description="HTTP API for the Zeropark native AI-workspace framework.",
+        lifespan=lifespan,
     )
     
+    _cors_origins = [
+        o.strip()
+        for o in os.environ.get("ZEROPARK_CORS_ORIGINS", "http://localhost:3000").split(",")
+        if o.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -81,11 +93,6 @@ def create_app() -> FastAPI:
     registry, router = build_state()
     app.state.registry = registry
     app.state.router = router
-
-    @app.on_event("startup")
-    async def startup_event():
-        # Initialize SQLite tables
-        await init_db()
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -102,6 +109,13 @@ def create_app() -> FastAPI:
         provider_id: str | None,
         tenant: str | None = None,
     ) -> dict[str, Any]:
+        # Basic SSRF & Prompt Injection Guard
+        forbidden_patterns = ["169.254.169.254", "localhost", "127.0.0.1", "ignore previous instructions", "system prompt"]
+        prompt_lower = prompt.lower()
+        if any(bad in prompt_lower for bad in forbidden_patterns):
+            # Only block if it looks like a malicious attempt
+            raise HTTPException(status_code=400, detail="Security policy violation: Request contains blocked patterns.")
+
         router: Router = request.app.state.router
         try:
             provider = router.select(capability, prefer=provider_id)
@@ -171,15 +185,19 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/api/v1/tasks")
-    async def create_task(request: Request, body: TaskCreateRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
-        print(f"Task initiated by user {current_user['user_id']}")
+    async def create_task(request: Request, body: TaskCreateRequest, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
         router = _router(request)
         try:
             plan = router.plan(body.mode)
-        except ZeroparkError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}") from exc
             
-        return {"task_id": "dummy", "plan": [c.value for c in plan.pipeline]}
+        result = await _run_capability(
+            request, plan.primary, body.prompt, body.params, body.provider_id, body.tenant
+        )
+        result["mode"] = body.mode
+        result["initiated_by"] = current_user.get("user_id")
+        return result
 
     @app.post("/api/v1/rag/upload")
     async def rag_upload(request: Request, files: list[UploadFile] = File(...), current_user: dict = Depends(get_current_user)) -> dict[str, Any]:

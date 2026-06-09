@@ -50,7 +50,9 @@ class SourceRef(BaseModel):
     provider_id: str | None = None
 
 
-ArtifactKind = Literal["report", "deck", "sheet", "page", "file", "data", "message"]
+ArtifactKind = Literal[
+    "report", "deck", "sheet", "page", "file", "data", "message", "image", "audio"
+]
 
 
 class Artifact(BaseModel):

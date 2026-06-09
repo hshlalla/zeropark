@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from zeropark_core.models_db import Base, User
 from zeropark_gateway.main import app
@@ -12,7 +13,12 @@ from zeropark_core.database import get_db_session
 
 # Test DB Setup
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-test_engine = create_async_engine(TEST_DB_URL, echo=False)
+test_engine = create_async_engine(
+    TEST_DB_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestSessionLocal = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 async def override_get_db_session():
@@ -23,6 +29,7 @@ app.dependency_overrides[get_db_session] = override_get_db_session
 
 @pytest_asyncio.fixture(autouse=True)
 async def init_test_db():
+    app.dependency_overrides[get_db_session] = override_get_db_session
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -33,7 +40,7 @@ client = TestClient(app)
 
 @pytest.mark.asyncio
 async def test_google_login_redirect():
-    response = client.get("/auth/google/login", follow_redirects=False)
+    response = client.get("/api/v1/auth/google/login", follow_redirects=False)
     assert response.status_code == 307
     assert "accounts.google.com/o/oauth2/v2/auth" in response.headers["location"]
 
@@ -58,7 +65,7 @@ async def test_google_callback_new_user(mock_get, mock_post):
     mock_get.return_value = mock_profile_resp
     
     # Actually make the request
-    response = client.get("/auth/google/callback?code=fake-code")
+    response = client.get("/api/v1/auth/google/callback?code=fake-code")
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
@@ -91,7 +98,7 @@ async def test_google_callback_existing_user(mock_get, mock_post):
     }
     mock_get.return_value = mock_profile_resp
     
-    response = client.get("/auth/google/callback?code=fake-code-2")
+    response = client.get("/api/v1/auth/google/callback?code=fake-code-2")
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data

@@ -1,4 +1,5 @@
 import os
+import secrets
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
@@ -21,7 +22,12 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:80
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # Secret keys and algorithm
-SECRET_KEY = os.environ.get("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7") # Change in production
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    # In production, warn if starting without a fixed secret
+    print("WARNING: ZEROPARK_SECRET_KEY not found in environment. Generating a secure random key for this session.")
+    SECRET_KEY = secrets.token_hex(32)
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
@@ -165,9 +171,12 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db_session))
             data={"sub": user.id, "role": user.role}
         )
         
-        # Redirect to frontend callback route
-        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
-        return RedirectResponse(url=f"{frontend_url}/auth/callback?token={our_token}")
+        # Return the token + user as JSON (API-first; the SPA stores the token).
+        return {
+            "access_token": our_token,
+            "token_type": "bearer",
+            "user": {"email": user.email, "role": user.role},
+        }
 
 @auth_router.post("/guest/login")
 async def guest_login(role: str = "admin"):

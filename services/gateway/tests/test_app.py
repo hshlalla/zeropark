@@ -50,8 +50,9 @@ def test_slides_task_generates_real_pptx(client: TestClient, tmp_path) -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert "task_id" in body
-    assert "slides" in body["plan"]
+    assert body["status"] == "succeeded"
+    assert body["capability"] == "slides"
+    assert body["artifacts"][0]["kind"] == "deck"
 
 
 def test_search_without_backend_is_503(client: TestClient) -> None:

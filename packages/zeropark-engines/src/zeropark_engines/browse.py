@@ -85,7 +85,7 @@ class PlaywrightBrowseEngine(NativeEngine):
         # 1. Image Artifact
         artifacts.append(Artifact(
             id=self.new_id("screenshot"),
-            kind="file",
+            kind="image",
             title=f"Screenshot of {page_title or url}",
             mime_type="image/png",
             uri=file_uri

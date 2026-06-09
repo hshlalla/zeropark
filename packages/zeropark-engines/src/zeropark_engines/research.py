@@ -105,8 +105,13 @@ class ResearchEngine(NativeEngine):
                     "url": source.url,
                     "content": content
                 })
-                # We record the source to send back
-                final_sources.append(source)
+                # We record the source to send back (normalize to a real SourceRef)
+                if isinstance(source, SourceRef):
+                    final_sources.append(source)
+                else:
+                    final_sources.append(
+                        SourceRef(url=getattr(source, "url", None), provider_id=self.id)
+                    )
 
         # 4. Generate Report
         report_markdown = await self._generate_report(task.prompt, contexts)

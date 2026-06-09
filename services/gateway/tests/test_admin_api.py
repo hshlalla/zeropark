@@ -3,6 +3,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from zeropark_core.models_db import Base, User
 from zeropark_gateway.main import app
@@ -10,7 +11,12 @@ from zeropark_core.database import get_db_session
 from zeropark_gateway.auth import create_access_token
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-test_engine = create_async_engine(TEST_DB_URL, echo=False)
+test_engine = create_async_engine(
+    TEST_DB_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestSessionLocal = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 async def override_get_db_session():
@@ -21,6 +27,7 @@ app.dependency_overrides[get_db_session] = override_get_db_session
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_db():
+    app.dependency_overrides[get_db_session] = override_get_db_session
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         

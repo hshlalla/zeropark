@@ -24,11 +24,15 @@ class QdrantVectorStore:
     def __init__(self, llm: BaseLLMClient, collection_name: str = "zeropark_rag"):
         self.llm = llm
         self.collection_name = collection_name
-        # Using in-memory storage for fast development and testing without lock issues
+        # Default to embedded in-memory mode: no external service, matches the
+        # single self-contained artifact principle (ideal for tests / base install).
+        # Set QDRANT_URL (e.g. http://localhost:6333) to use a real Qdrant server at scale.
         import os
-        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
-        qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
-        self.client = QdrantClient(host=qdrant_host, port=qdrant_port)
+        qdrant_url = os.getenv("QDRANT_URL")
+        if qdrant_url:
+            self.client = QdrantClient(url=qdrant_url)
+        else:
+            self.client = QdrantClient(location=":memory:")
         
         # Test vector dimension (e.g. text-embedding-3-small is usually 1536)
         # We fetch a dummy embedding to know the dimension

@@ -62,14 +62,28 @@ class Provider(ABC):
         Adapters that can stream natively should override this to yield events as
         they happen.
         """
+        yield RunEvent(
+            type="status",
+            task_id=task_id,
+            provider_id=self.id,
+            message="started",
+            data={"capability": task.capability.value},
+        )
         result = await self.execute(task, task_id=task_id)
         for event in result.events:
             yield event
+        for artifact in result.artifacts:
+            yield RunEvent(
+                type="artifact",
+                task_id=task_id,
+                provider_id=self.id,
+                data={"artifact": artifact.model_dump(mode="json")},
+            )
         yield RunEvent(
             type="done",
             task_id=task_id,
             provider_id=self.id,
-            data={"status": result.status.value},
+            data={"status": result.status.value, "result": result.model_dump(mode="json")},
         )
 
     @abstractmethod
