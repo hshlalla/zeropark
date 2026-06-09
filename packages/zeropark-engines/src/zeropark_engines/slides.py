@@ -7,11 +7,15 @@ this engine renders whatever outline it is given, so it works with zero config.
 
 from __future__ import annotations
 
+import json
+import re
+import asyncio
 from pathlib import Path
 
 from pptx import Presentation
 from zeropark_core.capabilities import Capability
 from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus
+from zeropark_core.llm import BaseLLMClient, ChatMessage
 
 from zeropark_engines.base import NativeEngine
 
@@ -71,3 +75,60 @@ class PptxSlidesEngine(NativeEngine):
             artifacts=[artifact],
             metrics={"slides": n_slides},
         )
+
+class LLMSlidesEngine(NativeEngine):
+    id = "llm-slides"
+    name = "LLM Slides Generator"
+    capabilities = frozenset({Capability.SLIDES})
+    reference = "Presenton (Apache-2.0) - LLM Outline Generation"
+
+    def __init__(self, llm_client: BaseLLMClient, renderer: PptxSlidesEngine, model_name: str = "gpt-4o-mini") -> None:
+        self.llm_client = llm_client
+        self.renderer = renderer
+        self.model_name = model_name
+
+    async def _generate_outline(self, prompt: str) -> list[dict]:
+        system_msg = ChatMessage(
+            role="system",
+            content=(
+                "You are an expert presentation designer. Create an outline for a slide deck based on the user's prompt. "
+                "The outline must be in a strict JSON array format where each element represents a slide. "
+                "Structure: [{\"title\": \"Slide Title\", \"bullets\": [\"Point 1\", \"Point 2\"]}]. "
+                "Generate exactly 3 to 5 slides. Return ONLY the JSON array, nothing else."
+            )
+        )
+        user_msg = ChatMessage(role="user", content=prompt)
+        
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.llm_client.chat_completion([system_msg, user_msg], self.model_name, temperature=0.5)
+        )
+        
+        text = response.content.strip()
+        # Find JSON array using regex if there's markdown wrapping
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            text = match.group(0)
+            
+        try:
+            outline = json.loads(text)
+            if isinstance(outline, list) and len(outline) > 0:
+                return outline
+        except Exception:
+            pass
+            
+        # Fallback if parsing fails
+        return [{"title": prompt[:80], "bullets": ["Could not generate detailed outline."]}]
+
+    async def cap_slides(self, task: TaskRequest, task_id: str) -> TaskResult:
+        # 1. Generate Outline via LLM
+        outline = await self._generate_outline(task.prompt)
+        
+        # 2. Inject outline into task params
+        if not task.params:
+            task.params = {}
+        task.params["outline"] = outline
+        
+        # 3. Delegate to renderer
+        return await self.renderer.cap_slides(task, task_id)
