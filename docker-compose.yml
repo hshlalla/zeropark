@@ -1,8 +1,17 @@
 name: zeropark
 
-# Native framework: a single deployable service. No engine containers.
 services:
-  gateway:
+  web:
+    build:
+      context: packages/zeropark-web
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
     build:
       context: .
       dockerfile: services/gateway/Dockerfile
@@ -10,6 +19,14 @@ services:
       - .env
     ports:
       - "8080:8080"
+    volumes:
+      # CRITICAL: Mount host docker socket to allow Docker-in-Docker for PythonSandbox
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount artifacts directory to persist generated files (pptx, png, etc.)
+      - ./artifacts:/app/data/artifacts
+    depends_on:
+      - qdrant
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -17,3 +34,4 @@ services:
       - "6333:6333"
     volumes:
       - ./qdrant_data:/qdrant/storage
+    restart: unless-stopped

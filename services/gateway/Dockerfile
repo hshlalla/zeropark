@@ -7,6 +7,9 @@ COPY packages/zeropark-core /app/packages/zeropark-core
 COPY packages/zeropark-engines /app/packages/zeropark-engines
 COPY services/gateway /app/services/gateway
 
+# Install Docker CLI so the container can use the host's docker daemon via socket
+RUN apt-get update && apt-get install -y docker.io curl && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir \
     -e packages/zeropark-core \
     -e packages/zeropark-engines \
