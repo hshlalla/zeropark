@@ -14,6 +14,7 @@ function App() {
   const modes = [
     { id: 'research', label: 'Research' },
     { id: 'workflow', label: 'Deep Think (Agent)' },
+    { id: 'rag', label: 'Knowledge Base (RAG)' },
     { id: 'slides', label: 'Create Slides' },
     { id: 'sheets', label: 'Create Sheets' },
     { id: 'browse', label: 'Browse Web' }

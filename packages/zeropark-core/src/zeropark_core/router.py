@@ -74,6 +74,12 @@ DEFAULT_MODES: dict[str, ModePlan] = {
         (Capability.WORKFLOW,),
         "Run a configured workflow / RAG app.",
     ),
+    "rag": ModePlan(
+        "rag",
+        Capability.RAG,
+        (Capability.RAG,),
+        "Chat with memory and vector search.",
+    ),
     "image": ModePlan(
         "image",
         Capability.IMAGE,

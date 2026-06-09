@@ -25,6 +25,7 @@ class Capability(str, Enum):
     BROWSE = "browse"            # drive a real browser to complete a web task
     WORKFLOW = "workflow"        # run a configured workflow / RAG app
     SUPER_AGENT = "super_agent"  # long-horizon planning across many tools
+    RAG = "rag"                  # retrieval augmented generation
     IMAGE = "image"              # generate or edit an image
     PAGE = "page"                # generate and publish a web page / site
     AUDIO = "audio"              # text-to-speech / narrated podcast

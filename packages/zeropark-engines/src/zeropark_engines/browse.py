@@ -7,11 +7,10 @@ This is the foundational headless browser engine that LLM Agents can use to inte
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 
 from zeropark_core.capabilities import Capability
-from zeropark_core.models import Artifact, SourceRef, TaskRequest, TaskResult, TaskStatus
-
+from zeropark_core import ArtifactStore
+from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus
 from zeropark_engines.base import NativeEngine
 from zeropark_engines.crawl import html_to_markdown
 
@@ -20,13 +19,13 @@ from zeropark_engines.crawl import html_to_markdown
 
 
 class PlaywrightBrowseEngine(NativeEngine):
-    id = "playwright-browse"
+    id = "playwright-browser"
     name = "Playwright Browser Engine"
     capabilities = frozenset({Capability.BROWSE})
-    reference = "browser-use (MIT) - Foundation for LLM browser loop"
+    reference = "Browser Use (MIT) - design reference only"
 
-    def __init__(self, *, output_dir: str = "artifacts", timeout_ms: int = 30000) -> None:
-        self.output_dir = Path(output_dir)
+    def __init__(self, store: ArtifactStore, timeout_ms: int = 30000) -> None:
+        self.store = store
         self.timeout_ms = timeout_ms
 
     async def cap_browse(self, task: TaskRequest, task_id: str) -> TaskResult:
@@ -44,9 +43,6 @@ class PlaywrightBrowseEngine(NativeEngine):
         url = task.params.get("url") or task.prompt
         headless = str(task.params.get("headless", "true")).lower() == "true"
         
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        screenshot_path = self.output_dir / f"{task_id}.png"
-
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=headless)
             context = await browser.new_context(
@@ -59,8 +55,8 @@ class PlaywrightBrowseEngine(NativeEngine):
                 # Go to URL and wait until network is mostly idle to ensure JS rendering
                 await page.goto(url, wait_until="networkidle", timeout=self.timeout_ms)
                 
-                # Take screenshot
-                await page.screenshot(path=str(screenshot_path), full_page=True)
+                # Take screenshot into memory
+                screenshot_bytes = await page.screenshot(full_page=True)
                 
                 # Get HTML content and convert to markdown
                 html_content = await page.content()
@@ -79,6 +75,10 @@ class PlaywrightBrowseEngine(NativeEngine):
                 
             await browser.close()
 
+        # Save screenshot to store
+        filename = f"{task_id}_screenshot.png"
+        file_uri = self.store.save(filename, screenshot_bytes)
+
         # Create Artifacts
         artifacts = []
         
@@ -88,7 +88,7 @@ class PlaywrightBrowseEngine(NativeEngine):
             kind="image",
             title=f"Screenshot of {page_title or url}",
             mime_type="image/png",
-            uri=str(screenshot_path)
+            uri=file_uri
         ))
         
         # 2. Markdown Text Artifact

@@ -28,6 +28,10 @@ class BaseLLMClient(abc.ABC):
     ) -> ChatResponse:
         pass
 
+    @abc.abstractmethod
+    def create_embeddings(self, texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
+        pass
+
 class OpenAILLMClient(BaseLLMClient):
     """OpenAI-compatible LLM client wrapping the official openai python package."""
     
@@ -65,3 +69,8 @@ class OpenAILLMClient(BaseLLMClient):
             total_tokens=usage.total_tokens if usage else 0,
             model=response.model
         )
+
+    def create_embeddings(self, texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
+        response = self.client.embeddings.create(input=texts, model=model)
+        return [data.embedding for data in response.data]
+

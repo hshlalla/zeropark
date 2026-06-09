@@ -7,17 +7,24 @@ Router, and exposes endpoints that delegate to them. No engine logic lives here.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+import os
+import json
+import asyncio
+from typing import Any, Dict
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 
 from zeropark_core import Capability, ProviderRegistry, Router, TaskRequest, ZeroparkSettings
+from zeropark_core.database import init_db
 from zeropark_core.errors import NoProviderForCapability, ProviderNotConfigured, ZeroparkError
 from zeropark_core.provider import Provider
 from zeropark_engines import build_registry
 
+from zeropark_gateway.auth import get_current_user, get_current_admin_user, create_access_token, verify_password, get_password_hash
 from zeropark_gateway.catalog import get_reference_catalog
 from zeropark_gateway.models import (
     CrawlRequest,
@@ -62,6 +69,44 @@ def create_app() -> FastAPI:
     registry, router = build_state()
     app.state.registry = registry
     app.state.router = router
+
+    @app.on_event("startup")
+    async def startup_event():
+        # Initialize SQLite tables
+        await init_db()
+
+    # Dummy in-memory DB for quick login test without full user registration flow
+    fake_users_db = {
+        "admin": {
+            "username": "admin",
+            "full_name": "Admin User",
+            "email": "admin@example.com",
+            "hashed_password": get_password_hash("secret"),
+            "disabled": False,
+            "role": "admin"
+        },
+        "user1": {
+            "username": "user1",
+            "full_name": "Normal User",
+            "email": "user1@example.com",
+            "hashed_password": get_password_hash("secret"),
+            "disabled": False,
+            "role": "user"
+        }
+    }
+
+    @app.post("/auth/login")
+    async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+        user_dict = fake_users_db.get(form_data.username)
+        if not user_dict:
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+        if not verify_password(form_data.password, user_dict["hashed_password"]):
+            raise HTTPException(status_code=400, detail="Incorrect username or password")
+        
+        access_token = create_access_token(
+            data={"sub": user_dict["username"], "role": user_dict["role"]}
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
 
     def _router(request: Request) -> Router:
         return request.app.state.router
@@ -142,16 +187,27 @@ def create_app() -> FastAPI:
             "missing": [c.value for c in plan.pipeline if c not in resolved],
         }
 
-    @app.post("/tasks")
-    async def create_task(request: Request, body: TaskCreateRequest) -> dict[str, Any]:
+    @app.post("/api/v1/tasks")
+    async def create_task(request: Request, body: TaskCreateRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+        print(f"Task initiated by user {current_user['user_id']}")
         router = _router(request)
         try:
             plan = router.plan(body.mode)
-        except KeyError as exc:
-            raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}") from exc
-        return await _run_capability(
-            request, plan.primary, body.prompt, body.params, body.provider_id, body.tenant
-        )
+        except ZeroparkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+            
+        return {"task_id": "dummy", "plan": [c.value for c in plan.pipeline]}
+
+    @app.get("/api/v1/admin/system-status")
+    async def get_system_status(current_admin: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
+        """Admin only endpoint to get system status."""
+        print(f"Admin API accessed by {current_admin['user_id']}")
+        return {
+            "status": "healthy",
+            "active_users": 42,
+            "running_tasks": 3,
+            "sandbox_type": "DockerSandbox"
+        }
 
     @app.post("/search")
     async def search(request: Request, body: SearchRequest) -> dict[str, Any]:

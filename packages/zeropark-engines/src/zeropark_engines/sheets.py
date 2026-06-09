@@ -10,10 +10,16 @@ from __future__ import annotations
 import json
 import re
 import asyncio
+import io
+from typing import Any
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+
 from zeropark_core.capabilities import Capability
+from zeropark_core import ArtifactStore
 from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus
 from zeropark_core.llm import BaseLLMClient, ChatMessage
 
@@ -24,12 +30,29 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 class OpenpyxlSheetsEngine(NativeEngine):
     id = "openpyxl-sheets"
-    name = "XLSX Sheets (openpyxl)"
+    name = "Openpyxl Renderer Engine"
     capabilities = frozenset({Capability.SHEETS})
     reference = "Genspark AI Sheets - Excel Renderer"
 
-    def __init__(self, *, output_dir: str = "artifacts") -> None:
-        self.output_dir = Path(output_dir)
+    def __init__(self, store: ArtifactStore) -> None:
+        self.store = store
+
+    def _render_xlsx(self, title: str, headers: list[str], rows: list[list[Any]]) -> bytes:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+
+        if headers:
+            ws.append(headers)
+            for i, _ in enumerate(headers, 1):
+                ws[f"{get_column_letter(i)}1"].font = Font(bold=True)
+
+        for row in rows:
+            ws.append(row)
+
+        output = io.BytesIO()
+        wb.save(output)
+        return output.getvalue()
 
     async def cap_sheets(self, task: TaskRequest, task_id: str) -> TaskResult:
         # Expected structure: {"headers": ["col1", "col2"], "rows": [[val1, val2], ...]}
@@ -39,29 +62,22 @@ class OpenpyxlSheetsEngine(NativeEngine):
         }
         deck_title = task.params.get("title") or task.prompt[:80]
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Sheet1"
-
-        headers = sheet_data.get("headers", [])
-        if headers:
-            ws.append(headers)
-
-        for row in sheet_data.get("rows", []):
-            ws.append(row)
-
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        path = self.output_dir / f"{task_id}.xlsx"
-        wb.save(str(path))
+        xlsx_bytes = self._render_xlsx(
+            deck_title, 
+            sheet_data.get("headers", []), 
+            sheet_data.get("rows", [])
+        )
+        
+        filename = f"{task_id}.xlsx"
+        file_uri = self.store.save(filename, xlsx_bytes)
 
         n_rows = len(sheet_data.get("rows", []))
         artifact = Artifact(
-            id=self.new_id("sheet"),
+            id=f"{task_id}_sheet",
             kind="sheet",
             title=deck_title,
             mime_type=_XLSX_MIME,
-            uri=str(path),
-            metadata={"rows": n_rows},
+            uri=file_uri,
         )
         return TaskResult(
             task_id=task_id,
