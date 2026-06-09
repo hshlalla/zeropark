@@ -25,7 +25,10 @@ class QdrantVectorStore:
         self.llm = llm
         self.collection_name = collection_name
         # Using in-memory storage for fast development and testing without lock issues
-        self.client = QdrantClient(location=":memory:")
+        import os
+        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+        qdrant_port = int(os.getenv("QDRANT_PORT", 6333))
+        self.client = QdrantClient(host=qdrant_host, port=qdrant_port)
         
         # Test vector dimension (e.g. text-embedding-3-small is usually 1536)
         # We fetch a dummy embedding to know the dimension
