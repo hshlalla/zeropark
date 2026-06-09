@@ -26,6 +26,13 @@ services:
       - ./artifacts:/app/data/artifacts
     depends_on:
       - qdrant
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
 
   qdrant:

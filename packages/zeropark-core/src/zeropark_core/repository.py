@@ -42,18 +42,40 @@ class UserRepository(BaseRepository[User]):
     def get_by_email(self, db: Session, email: str) -> Optional[User]:
         return db.query(self.model).filter(self.model.email == email).first()
 
+from .cache import redis_cache
+
 class ChatRepository(BaseRepository[ChatSession]):
     def __init__(self):
         super().__init__(ChatSession)
 
     def get_messages(self, db: Session, session_id: str) -> List[ChatMessage]:
-        return db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc()).all()
+        cache_key = f"chat_messages:{session_id}"
+        
+        # 1. Try Cache
+        cached_data = redis_cache.get(cache_key)
+        if cached_data:
+            # Reconstruct model objects from cached dicts (or just return dicts depending on usage)
+            return [ChatMessage(**msg) for msg in cached_data]
+            
+        # 2. Cache Miss -> Query DB
+        messages = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc()).all()
+        
+        # 3. Save to Cache
+        if messages:
+            msg_dicts = [{"id": m.id, "session_id": m.session_id, "role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in messages]
+            redis_cache.set(cache_key, msg_dicts, ttl_seconds=86400) # 24 hours TTL
+            
+        return messages
 
     def add_message(self, db: Session, session_id: str, role: str, content: str) -> ChatMessage:
         msg = ChatMessage(session_id=session_id, role=role, content=content)
         db.add(msg)
         db.commit()
         db.refresh(msg)
+        
+        # Invalidate cache so next read fetches fresh data
+        redis_cache.delete(f"chat_messages:{session_id}")
+        
         return msg
 
 class WorkflowRepository(BaseRepository[Workflow]):
