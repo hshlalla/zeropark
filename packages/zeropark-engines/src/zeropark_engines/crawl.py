@@ -13,6 +13,7 @@ import httpx
 from markdownify import markdownify as html_to_md
 from zeropark_core.capabilities import Capability
 from zeropark_core.models import Artifact, SourceRef, TaskRequest, TaskResult, TaskStatus
+from zeropark_core.netguard import validate_public_url
 
 from zeropark_engines.base import NativeEngine
 
@@ -40,6 +41,7 @@ class LocalCrawlEngine(NativeEngine):
         target = task.params.get("url") or task.prompt
         html = task.params.get("html")  # allows offline use / testing without a fetch
         if html is None:
+            validate_public_url(target)
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                 response = await client.get(target, headers={"User-Agent": self.user_agent})
                 response.raise_for_status()

@@ -1,161 +1,381 @@
+"""SUPER_AGENT — long-horizon agent loop over native tools.
+
+Native OpenAI-style tool calling (no fragile JSON-in-text parsing), real tools
+(web search, crawl, sandboxed python, MCP), and live RunEvent streaming so the
+UI renders Thought/Action progress as it happens.
+
+Design reference: DeerFlow / OpenManus (MIT) — design only, no code used.
+"""
+
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import time
-from typing import Any
+from collections.abc import AsyncIterator
+from typing import Any, Callable, Optional
 
-from zeropark_core import Artifact, Capability, TaskRequest, TaskResult, ArtifactStore
-from zeropark_core.llm import OpenAILLMClient, ChatMessage
-from zeropark_engines.base import NativeEngine
-from zeropark_engines.sandbox import PythonSandbox, DockerSandbox
+from zeropark_core import (
+    Artifact,
+    Capability,
+    RunEvent,
+    TaskRequest,
+    TaskResult,
+    TaskStatus,
+    ArtifactStore,
+)
+from zeropark_core.llm import BaseLLMClient, ChatMessage
 from zeropark_core.mcp_client import MCPClientManager
+from zeropark_engines.base import NativeEngine
+from zeropark_engines.sandbox import DockerSandbox, PythonSandbox
+
+DEFAULT_MAX_ITERATIONS = 15
+
+SYSTEM_PROMPT = """You are Zeropark's Super Agent: a capable autonomous assistant.
+Work step by step. Use the provided tools to gather facts, run computations, and
+interact with external systems. Cite URLs you used. When you have everything you
+need, reply with the final answer in well-structured markdown (no tool call)."""
+
+
+def _build_sandbox() -> Optional[Any]:
+    """Prefer Docker isolation; fall back to in-process exec ONLY when the
+    operator explicitly opted in via ZEROPARK_ALLOW_UNSAFE_SANDBOX."""
+    try:
+        return DockerSandbox()
+    except Exception:
+        pass
+    try:
+        return PythonSandbox()
+    except PermissionError:
+        return None
 
 
 class SuperAgentEngine(NativeEngine):
-    """Deep-think ReAct loop engine for complex task resolution."""
-
     id = "zeropark_engines.super_agent"
     name = "Super Agent Engine"
-    capabilities = {Capability.WORKFLOW, Capability.SUPER_AGENT}
+    capabilities = frozenset({Capability.WORKFLOW, Capability.SUPER_AGENT})
+    reference = "DeerFlow (MIT), OpenManus (MIT) - design reference only"
 
-    def __init__(self, store: ArtifactStore, **kwargs: Any) -> None:
-        super().__init__(store, **kwargs)
+    def __init__(
+        self,
+        store: ArtifactStore,
+        llm_client: BaseLLMClient,
+        *,
+        search_engine: NativeEngine | None = None,
+        crawl_engine: NativeEngine | None = None,
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_iterations: int | None = None,
+        mcp_manager: MCPClientManager | None = None,
+    ) -> None:
         self.store = store
-        
-        # Use DockerSandbox for enterprise isolation
-        try:
-            self.sandbox = DockerSandbox()
-        except Exception as e:
-            print(f"Warning: Docker not available, falling back to PythonSandbox. Error: {e}")
-            self.sandbox = PythonSandbox()
-            
-        import os
-        api_key = os.environ.get("OPENAI_API_KEY", "dummy_key")
-        self.llm_client = OpenAILLMClient(api_key=api_key)
-        self.default_model = kwargs.get("model", "gpt-4o")
-        self.default_temperature = kwargs.get("temperature", 0.0)
+        self.llm_client = llm_client
+        self.search_engine = search_engine
+        self.crawl_engine = crawl_engine
+        self.model = model or os.environ.get("ZEROPARK_AGENT_MODEL", "gpt-4o")
+        self.temperature = temperature
+        self.max_iterations = max_iterations or int(
+            os.environ.get("ZEROPARK_AGENT_MAX_ITERATIONS", DEFAULT_MAX_ITERATIONS)
+        )
+        self.sandbox = _build_sandbox()
 
-    async def execute(self, request: TaskRequest, task_id: str) -> TaskResult:
-        """Runs the ReAct (Reasoning + Acting) loop."""
-        
-        # Initialize MCP Client to load external tools
-        import os
-        config_path = os.environ.get("MCP_SERVERS_CONFIG", "c:/Users/CNXK/Documents/Zeropark/services/gateway/src/mcp_servers.json")
-        mcp_manager = MCPClientManager(config_path)
-        await mcp_manager.connect_all()
-        
-        external_tools = await mcp_manager.get_all_tools()
-        tools_desc = ""
-        for idx, tool in enumerate(external_tools, start=3):
-            tools_desc += f"{idx}. {tool['name']}: {tool['description']}\n"
-            tools_desc += f"   Payload: {{\"action\": \"{tool['name']}\", \"arguments\": <json matching {json.dumps(tool['inputSchema'])}>}}\n"
+        # Shared MCP manager: connected once and reused across requests. The
+        # config path comes from the environment, not a hardcoded machine path.
+        self._mcp_manager = mcp_manager
+        self._mcp_connected = mcp_manager is not None and bool(mcp_manager.sessions)
+        self._mcp_lock = asyncio.Lock()
+        self._mcp_tools: list[dict[str, Any]] = []
 
-        system_prompt = f"""You are a highly capable AI Super Agent.
-You operate in a loop of Thought, Action, PAUSE, Observation.
-At the end of the loop you output an Answer.
+    # ------------------------------------------------------------------ MCP
 
-Use Thought to describe your thoughts about the question you have been asked.
-Use Action to run one of the actions available to you.
-You must return the Action in valid JSON format.
+    async def _ensure_mcp(self) -> None:
+        if self._mcp_manager is None:
+            config_path = os.environ.get("ZEROPARK_MCP_CONFIG", "mcp_servers.json")
+            if not os.path.exists(config_path):
+                return
+            self._mcp_manager = MCPClientManager(config_path)
+        async with self._mcp_lock:
+            if not self._mcp_connected:
+                try:
+                    await self._mcp_manager.connect_all()
+                    self._mcp_tools = await self._mcp_manager.get_all_tools()
+                    self._mcp_connected = True
+                except Exception as exc:
+                    print(f"Warning: MCP connection failed, continuing without MCP tools: {exc}")
+                    self._mcp_manager = None
 
-Your available internal actions are:
-1. python_exec: Runs python code and returns the output. Use this for math or data manipulation.
-   Payload: {{"action": "python_exec", "code": "<python code string>"}}
-2. search: Searches the web for information (Mocked for now).
-   Payload: {{"action": "search", "query": "<search query>"}}
+    # ---------------------------------------------------------------- tools
 
-Your available external (MCP) actions are:
-{tools_desc}
+    def _tool_specs(self) -> list[dict[str, Any]]:
+        tools: list[dict[str, Any]] = []
+        if self.sandbox is not None:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "python_exec",
+                        "description": "Run Python code in an isolated sandbox and return stdout/stderr. Use for math, data manipulation, or file generation.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"code": {"type": "string", "description": "Python source code to execute."}},
+                            "required": ["code"],
+                        },
+                    },
+                }
+            )
+        if self.search_engine is not None:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "description": "Search the web and return top results (title, url, snippet).",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string"},
+                                "limit": {"type": "integer", "description": "Max results (default 5)."},
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                }
+            )
+        if self.crawl_engine is not None:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "crawl_url",
+                        "description": "Fetch a public URL and return its content as clean markdown.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"url": {"type": "string"}},
+                            "required": ["url"],
+                        },
+                    },
+                }
+            )
+        for tool in self._mcp_tools:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool.get("description") or "",
+                        "parameters": tool.get("inputSchema")
+                        or {"type": "object", "properties": {}},
+                    },
+                }
+            )
+        return tools
 
-When you have a final answer, output:
-Final Answer: <the answer text>
-"""
-        
+    async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        if name == "python_exec":
+            code = arguments.get("code", "")
+            return await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.sandbox.execute(code)
+            )
+        if name == "web_search" and self.search_engine is not None:
+            sub_task = TaskRequest(
+                prompt=arguments.get("query", ""),
+                capability=Capability.SEARCH,
+                params={"limit": int(arguments.get("limit", 5))},
+            )
+            result = await self.search_engine.cap_search(sub_task, task_id="agent_search")
+            return json.dumps(
+                [
+                    {"title": s.title, "url": s.url, "snippet": s.snippet}
+                    for s in result.sources
+                ],
+                ensure_ascii=False,
+            )
+        if name == "crawl_url" and self.crawl_engine is not None:
+            sub_task = TaskRequest(
+                prompt="crawl",
+                capability=Capability.CRAWL,
+                params={"url": arguments.get("url", "")},
+            )
+            result = await self.crawl_engine.cap_crawl(sub_task, task_id="agent_crawl")
+            content = result.artifacts[0].inline if result.artifacts else ""
+            return str(content)[:8000]
+        if "__" in name and self._mcp_manager is not None:
+            server_name, tool_name = name.split("__", 1)
+            return await self._mcp_manager.execute_tool(server_name, tool_name, arguments)
+        return f"Error: unknown tool '{name}'"
+
+    # ----------------------------------------------------------------- loop
+
+    async def _run(
+        self,
+        request: TaskRequest,
+        task_id: str,
+        emit: Callable[[RunEvent], None],
+    ) -> TaskResult:
+        await self._ensure_mcp()
+        tools = self._tool_specs()
+        model = request.params.get("model") or self.model
+        max_iterations = int(request.params.get("max_iterations") or self.max_iterations)
+
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": request.prompt}
+            ChatMessage(role="system", content=SYSTEM_PROMPT),
+            ChatMessage(role="user", content=request.prompt),
         ]
 
-        max_iterations = 5
         final_answer = ""
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        
+        iterations = 0
         start_time = time.time()
-        
-        for i in range(max_iterations):
-            # 1. Thought / Action phase
-            chat_messages = [ChatMessage(role=m["role"], content=m["content"]) for m in messages]
-            response = self.llm.chat_completion(chat_messages, model="gpt-4o")
-            content = response.content or ""
-            
-            total_prompt_tokens += getattr(response, "prompt_tokens", 0)
-            total_completion_tokens += getattr(response, "completion_tokens", 0)
-            
-            messages.append({"role": "assistant", "content": content})
-            
-            if "Final Answer:" in content:
-                final_answer = content.split("Final Answer:", 1)[1].strip()
+
+        for iterations in range(1, max_iterations + 1):
+            response = await self.llm_client.achat_completion(
+                messages, model=model, temperature=self.temperature, tools=tools or None
+            )
+            total_prompt_tokens += response.prompt_tokens
+            total_completion_tokens += response.completion_tokens
+
+            if not response.tool_calls:
+                final_answer = response.content
                 break
-                
-            # Parse action if present
-            action_result = "Observation: No valid action json found. Please format your action as JSON."
-            
-            # Simple heuristic to find JSON block
-            if "{" in content and "}" in content:
+
+            messages.append(
+                ChatMessage(
+                    role="assistant",
+                    content=response.content or "",
+                    tool_calls=response.tool_calls,
+                )
+            )
+            if response.content:
+                emit(
+                    RunEvent(
+                        type="log",
+                        task_id=task_id,
+                        provider_id=self.id,
+                        message=response.content,
+                        data={"phase": "thought", "iteration": iterations},
+                    )
+                )
+
+            for tool_call in response.tool_calls:
                 try:
-                    start = content.find("{")
-                    end = content.rfind("}") + 1
-                    action_json = json.loads(content[start:end])
-                    
-                    action_type = action_json.get("action")
-                    if action_type == "python_exec":
-                        code = action_json.get("code", "")
-                        action_result = f"Observation:\n{self.sandbox.execute(code)}"
-                    elif action_type == "search":
-                        query = action_json.get("query", "")
-                        action_result = f"Observation: Found results for '{query}' - (Simulated data)."
-                    elif "__" in action_type:
-                        # MCP tool execution
-                        server_name, tool_name = action_type.split("__", 1)
-                        args = action_json.get("arguments", {})
-                        mcp_result = await mcp_manager.execute_tool(server_name, tool_name, args)
-                        action_result = f"Observation from {server_name}: {mcp_result}"
-                    else:
-                        action_result = f"Observation: Unknown action '{action_type}'"
+                    arguments = json.loads(tool_call.arguments) if tool_call.arguments else {}
                 except json.JSONDecodeError:
-                    action_result = "Observation: Failed to parse action JSON."
-                except Exception as e:
-                    action_result = f"Observation: Error executing action: {e}"
-            
-            # 2. Observation phase
-            messages.append({"role": "user", "content": action_result})
-            
-        await mcp_manager.close()
-            
+                    arguments = {}
+                emit(
+                    RunEvent(
+                        type="status",
+                        task_id=task_id,
+                        provider_id=self.id,
+                        message=f"tool:{tool_call.name}",
+                        data={"phase": "action", "tool": tool_call.name, "arguments": arguments},
+                    )
+                )
+                try:
+                    observation = await self._execute_tool(tool_call.name, arguments)
+                except Exception as exc:
+                    observation = f"Tool execution error: {exc}"
+                emit(
+                    RunEvent(
+                        type="log",
+                        task_id=task_id,
+                        provider_id=self.id,
+                        message=str(observation)[:500],
+                        data={"phase": "observation", "tool": tool_call.name},
+                    )
+                )
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        content=str(observation),
+                        tool_call_id=tool_call.id,
+                        name=tool_call.name,
+                    )
+                )
+
         if not final_answer:
-            final_answer = "Max iterations reached without a Final Answer."
+            final_answer = "Max iterations reached without a final answer."
 
         artifact = Artifact(
             id=f"{task_id}_agent_result",
-            kind="markdown",
+            kind="report",
             title="Super Agent Report",
             mime_type="text/markdown",
-            inline=final_answer
+            inline=final_answer,
         )
-        
         latency_ms = (time.time() - start_time) * 1000
-        
         return TaskResult(
             task_id=task_id,
-            status="completed",
-            capability=Capability.WORKFLOW.value,  # or mapped to a new capability SUPER_AGENT
+            status=TaskStatus.SUCCEEDED,
+            capability=request.capability,
+            provider_id=self.id,
             artifacts=[artifact],
             metrics={
                 "prompt_tokens": total_prompt_tokens,
                 "completion_tokens": total_completion_tokens,
                 "total_tokens": total_prompt_tokens + total_completion_tokens,
-                "iterations": i + 1,
-                "latency_ms": round(latency_ms, 2)
-            }
+                "iterations": iterations,
+                "latency_ms": round(latency_ms, 2),
+                "model": model,
+            },
+        )
+
+    async def _run_capability(self, request: TaskRequest, task_id: str) -> TaskResult:
+        events: list[RunEvent] = []
+        result = await self._run(request, task_id, events.append)
+        result.events = events
+        return result
+
+    async def cap_super_agent(self, request: TaskRequest, task_id: str) -> TaskResult:
+        return await self._run_capability(request, task_id)
+
+    async def cap_workflow(self, request: TaskRequest, task_id: str) -> TaskResult:
+        return await self._run_capability(request, task_id)
+
+    async def stream(self, task: TaskRequest, *, task_id: str) -> AsyncIterator[RunEvent]:
+        """Native streaming: yield Thought/Action/Observation events live."""
+        queue: asyncio.Queue[RunEvent | None] = asyncio.Queue()
+
+        yield RunEvent(
+            type="status",
+            task_id=task_id,
+            provider_id=self.id,
+            message="started",
+            data={"capability": task.capability.value},
+        )
+
+        async def runner() -> TaskResult:
+            try:
+                return await self._run(task, task_id, queue.put_nowait)
+            finally:
+                queue.put_nowait(None)
+
+        run_task = asyncio.create_task(runner())
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield event
+
+        try:
+            result = await run_task
+        except Exception as exc:
+            yield RunEvent(
+                type="error", task_id=task_id, provider_id=self.id, message=str(exc)
+            )
+            return
+
+        for artifact in result.artifacts:
+            yield RunEvent(
+                type="artifact",
+                task_id=task_id,
+                provider_id=self.id,
+                data={"artifact": artifact.model_dump(mode="json")},
+            )
+        yield RunEvent(
+            type="done",
+            task_id=task_id,
+            provider_id=self.id,
+            data={"status": result.status.value, "result": result.model_dump(mode="json")},
         )

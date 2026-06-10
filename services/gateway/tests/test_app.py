@@ -57,3 +57,21 @@ def test_slides_task_generates_real_pptx(client: TestClient, tmp_path) -> None:
 
 def test_search_without_backend_is_503(client: TestClient) -> None:
     assert client.post("/search", json={"query": "x"}).status_code == 503
+
+
+def test_stream_task_emits_sse_events(client: TestClient) -> None:
+    resp = client.post(
+        "/api/v1/tasks/stream",
+        json={
+            "mode": "slides",
+            "prompt": "Company overview",
+            "params": {"title": "Overview", "outline": [{"title": "Intro", "bullets": ["Hi"]}]},
+        },
+    )
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    body = resp.text
+    assert "data:" in body
+    assert '"status"' in body      # started event
+    assert '"artifact"' in body    # one artifact event (the deck)
+    assert '"done"' in body        # terminal event carrying the full result

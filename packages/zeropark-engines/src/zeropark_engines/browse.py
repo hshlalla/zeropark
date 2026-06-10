@@ -11,6 +11,7 @@ import base64
 from zeropark_core.capabilities import Capability
 from zeropark_core import ArtifactStore
 from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus, SourceRef
+from zeropark_core.netguard import validate_public_url
 from zeropark_engines.base import NativeEngine
 from zeropark_engines.crawl import html_to_markdown
 
@@ -41,6 +42,7 @@ class PlaywrightBrowseEngine(NativeEngine):
             )
 
         url = task.params.get("url") or task.prompt
+        validate_public_url(url)
         headless = str(task.params.get("headless", "true")).lower() == "true"
         
         async with async_playwright() as p:

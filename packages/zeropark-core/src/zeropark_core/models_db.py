@@ -55,6 +55,31 @@ class ChatMessage(Base):
     
     session = relationship("ChatSession", back_populates="messages")
 
+class Job(Base):
+    """A long-running agent task, persisted so it survives reconnects/restarts."""
+    __tablename__ = "jobs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, nullable=True, index=True)
+    mode = Column(String, nullable=False)
+    prompt = Column(String, nullable=False)
+    params = Column(String, nullable=True)   # JSON string
+    status = Column(String, default="pending", index=True)  # pending/running/succeeded/failed/cancelled
+    result = Column(String, nullable=True)   # JSON string of the TaskResult
+    error = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class WorkflowRun(Base):
+    """One execution of a workflow, with its per-node log — run observability."""
+    __tablename__ = "workflow_runs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    workflow_name = Column(String, nullable=True)
+    user_id = Column(String, nullable=True, index=True)
+    status = Column(String, default="running", index=True)
+    node_runs = Column(String, nullable=True)  # JSON list of NodeRun
+    duration_ms = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Workflow(Base):
     __tablename__ = "workflows"
     id = Column(String, primary_key=True, default=generate_uuid)

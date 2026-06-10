@@ -9,7 +9,9 @@ from zeropark_engines.browse import PlaywrightBrowseEngine
 from zeropark_core.capabilities import Capability
 
 @pytest.mark.asyncio
-async def test_browse_engine_flow(tmp_path):
+async def test_browse_engine_flow(tmp_path, monkeypatch):
+    # The fetch is mocked, so skip the SSRF DNS resolution in this offline test.
+    monkeypatch.setenv("ZEROPARK_ALLOW_PRIVATE_URLS", "1")
     store = LocalArtifactStore(base_dir=str(tmp_path))
     engine = PlaywrightBrowseEngine(store=store)
     req = TaskRequest(prompt="http://test.com", capability=Capability.CRAWL, params={"headless": True})

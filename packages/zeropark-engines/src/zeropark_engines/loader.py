@@ -20,55 +20,110 @@ from zeropark_engines.search import WebSearchEngine
 from zeropark_engines.slides import PptxSlidesEngine, LLMSlidesEngine
 from zeropark_engines.sheets import OpenpyxlSheetsEngine, LLMSheetsEngine
 from zeropark_engines.research import ResearchEngine
+from zeropark_engines.deep_research import DeepResearchEngine
 from zeropark_engines.browse import PlaywrightBrowseEngine
+from zeropark_engines.browser_agent import BrowserAgentEngine
 from zeropark_engines.super_agent import SuperAgentEngine
 from zeropark_engines.rag import RAGEngine
-from zeropark_core.llm import OpenAILLMClient
+from zeropark_core.llm import create_llm_client
 
 
 def build_registry(
-    *, output_dir: str = "artifacts", search: dict[str, Any] | None = None, llm: dict[str, Any] | None = None
+    *,
+    output_dir: str = "artifacts",
+    search: dict[str, Any] | None = None,
+    llm: dict[str, Any] | None = None,
+    features: dict[str, bool] | None = None,
 ) -> ProviderRegistry:
+    """`features` is the deployment profile's capability switchboard: a
+    capability value mapped to False is not registered at all for this client.
+    Anything unlisted defaults to enabled."""
+    features = features or {}
+
+    def enabled(capability_value: str) -> bool:
+        return features.get(capability_value, True)
+
     registry = ProviderRegistry()
     store = LocalArtifactStore(base_dir=output_dir)
-    
+
     # Always available — pure-Python, no external service.
-    registry.register(LocalCrawlEngine())
-    
+    crawl_engine = LocalCrawlEngine()
+    if enabled("crawl"):
+        registry.register(crawl_engine)
+
     pptx_renderer = PptxSlidesEngine(store=store)
-    registry.register(pptx_renderer)
-    
+    if enabled("slides"):
+        registry.register(pptx_renderer)
+
     xlsx_renderer = OpenpyxlSheetsEngine(store=store)
-    registry.register(xlsx_renderer)
-    
+    if enabled("sheets"):
+        registry.register(xlsx_renderer)
+
     # Register Playwright Browse Engine if playwright is installed
-    try:
-        import playwright
-        registry.register(PlaywrightBrowseEngine(store=store))
-    except ImportError:
-        pass
-    
+    playwright_available = False
+    if enabled("browse"):
+        try:
+            import playwright  # noqa: F401
+            playwright_available = True
+            registry.register(PlaywrightBrowseEngine(store=store))
+        except ImportError:
+            pass
+
     # Optional — only when a commodity search backend is configured.
-    if search and search.get("base_url"):
+    search_engine = None
+    if search and search.get("base_url") and enabled("search"):
         search_engine = WebSearchEngine(**search)
         registry.register(search_engine)
-        
-        # Optional - Register Research Engine if search and LLM are configured
-        if llm and llm.get("api_key"):
-            llm_client = OpenAILLMClient(api_key=llm["api_key"])
-            crawl_engine = LocalCrawlEngine()
-            registry.register(ResearchEngine(llm_client=llm_client, search_engine=search_engine, crawl_engine=crawl_engine))
-            
-            # Also register LLMSlidesEngine (overrides or supplements default slides capability)
+
+    # LLM-backed engines — registered whenever an LLM is configured.
+    if llm and llm.get("api_key"):
+        llm_client = create_llm_client(
+            llm.get("provider"), llm["api_key"], llm.get("base_url")
+        )
+
+        # Research needs a search backend in addition to the LLM. DeepResearch
+        # (planner→researcher→reporter) registers first, so it is the default;
+        # the single-shot ResearchEngine stays available via provider_id.
+        if search_engine is not None and enabled("research"):
+            registry.register(
+                DeepResearchEngine(
+                    llm_client=llm_client,
+                    search_engine=search_engine,
+                    crawl_engine=crawl_engine,
+                    model=llm.get("model") or "gpt-4o",
+                )
+            )
+            registry.register(
+                ResearchEngine(
+                    llm_client=llm_client,
+                    search_engine=search_engine,
+                    crawl_engine=crawl_engine,
+                )
+            )
+
+        if enabled("slides"):
             registry.register(LLMSlidesEngine(llm_client=llm_client, renderer=pptx_renderer))
-            
-            # Register LLMSheetsEngine
+        if enabled("sheets"):
             registry.register(LLMSheetsEngine(llm_client=llm_client, renderer=xlsx_renderer))
-            
-            # Register SuperAgentEngine
-            registry.register(SuperAgentEngine(store=store))
-            
-            # Register RAGEngine
+        if enabled("super_agent"):
+            registry.register(
+                SuperAgentEngine(
+                    store=store,
+                    llm_client=llm_client,
+                    search_engine=search_engine,
+                    crawl_engine=crawl_engine,
+                    model=llm.get("model"),
+                )
+            )
+        if enabled("rag"):
             registry.register(RAGEngine(store=store, llm_client=llm_client))
-            
+        if enabled("browse") and playwright_available:
+            registry.register(
+                BrowserAgentEngine(
+                    store=store,
+                    llm_client=llm_client,
+                    model=llm.get("model") or "gpt-4o",
+                )
+            )
+
     return registry

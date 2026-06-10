@@ -16,18 +16,21 @@ from typing import Any, Dict
 import httpx
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
 from zeropark_core import Capability, ProviderRegistry, Router, TaskRequest, ZeroparkSettings
 from zeropark_core.database import init_db
 from zeropark_core.errors import NoProviderForCapability, ProviderNotConfigured, ZeroparkError
+from zeropark_core.netguard import BlockedURLError, validate_public_url
 from zeropark_core.provider import Provider
 from zeropark_engines import build_registry
 
 from zeropark_gateway.auth import get_current_user, get_current_admin_user, auth_router
 from zeropark_gateway.admin import admin_router
 from zeropark_gateway.workflow import workflow_router
+from zeropark_gateway.jobs import jobs_router
 from zeropark_gateway.catalog import get_reference_catalog
 from zeropark_gateway.exceptions import setup_exception_handlers
 from zeropark_gateway.models import (
@@ -46,11 +49,75 @@ class RagQueryRequest(BaseModel):
     provider_id: str | None = None
 
 
-def build_state() -> tuple[ProviderRegistry, Router]:
+def build_state() -> tuple[ProviderRegistry, Router, ZeroparkSettings]:
     settings = ZeroparkSettings()
-    registry = build_registry(output_dir=settings.output_dir, search=settings.search_kwargs())
+    registry = build_registry(
+        output_dir=settings.output_dir,
+        search=settings.search_kwargs(),
+        llm=settings.llm_kwargs(),
+        features=settings.features,
+    )
     router = Router(registry, preferences=settings.capability_preferences)
-    return registry, router
+    return registry, router, settings
+
+
+def apply_profile(app: FastAPI, profile: dict[str, Any]) -> bool:
+    """Apply a control-plane profile (branding + features) to the running app.
+
+    Returns True when something changed. A feature-flag change rebuilds the
+    registry/router so engines are added/removed live — no redeploy needed.
+    """
+    settings: ZeroparkSettings = app.state.settings
+    changed = False
+
+    branding = profile.get("branding")
+    if branding:
+        merged = settings.branding.model_dump() | {
+            k: v for k, v in branding.items() if v is not None
+        }
+        if merged != settings.branding.model_dump():
+            settings.branding = type(settings.branding)(**merged)
+            changed = True
+
+    features = profile.get("features")
+    if features is not None and features != settings.features:
+        settings.features = features
+        registry = build_registry(
+            output_dir=settings.output_dir,
+            search=settings.search_kwargs(),
+            llm=settings.llm_kwargs(),
+            features=settings.features,
+        )
+        app.state.registry = registry
+        app.state.router = Router(registry, preferences=settings.capability_preferences)
+        changed = True
+
+    return changed
+
+
+async def _heartbeat_loop(app: FastAPI, settings: ZeroparkSettings) -> None:
+    """Report liveness/usage to the control plane if one is configured."""
+    cp = settings.control_plane
+    while True:
+        try:
+            registry: ProviderRegistry = app.state.registry
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{cp.url.rstrip('/')}/api/v1/heartbeat",
+                    json={
+                        "deployment_id": cp.deployment_id,
+                        "license_key": cp.license_key,
+                        "version": app.version,
+                        "capabilities": sorted(c.value for c in registry.capabilities()),
+                    },
+                )
+            if response.status_code == 200:
+                profile = response.json().get("profile") or {}
+                if profile and apply_profile(app, profile):
+                    print("[Zeropark] Profile updated from control plane (hot-reload).")
+        except Exception:
+            pass  # control plane being down must never affect the product
+        await asyncio.sleep(cp.heartbeat_interval_s)
 
 
 def _provider_info(provider: Provider) -> dict[str, Any]:
@@ -66,7 +133,13 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await init_db()  # create DB tables on startup
+        heartbeat_task = None
+        settings: ZeroparkSettings = app.state.settings
+        if settings.control_plane.url:
+            heartbeat_task = asyncio.create_task(_heartbeat_loop(app, settings))
         yield
+        if heartbeat_task:
+            heartbeat_task.cancel()
 
     app = FastAPI(
         title="Zeropark Gateway",
@@ -90,13 +163,15 @@ def create_app() -> FastAPI:
     
     setup_exception_handlers(app)
     
-    registry, router = build_state()
+    registry, router, settings = build_state()
     app.state.registry = registry
     app.state.router = router
+    app.state.settings = settings
 
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(workflow_router)
+    app.include_router(jobs_router)
 
     def _router(request: Request) -> Router:
         return request.app.state.router
@@ -109,12 +184,16 @@ def create_app() -> FastAPI:
         provider_id: str | None,
         tenant: str | None = None,
     ) -> dict[str, Any]:
-        # Basic SSRF & Prompt Injection Guard
-        forbidden_patterns = ["169.254.169.254", "localhost", "127.0.0.1", "ignore previous instructions", "system prompt"]
-        prompt_lower = prompt.lower()
-        if any(bad in prompt_lower for bad in forbidden_patterns):
-            # Only block if it looks like a malicious attempt
-            raise HTTPException(status_code=400, detail="Security policy violation: Request contains blocked patterns.")
+        # SSRF guard: any user-supplied URL must resolve to a public address.
+        # (Engines re-validate at fetch time; validating here returns a clean 400
+        # instead of a failed task.) Prompt-injection defense is handled by tool
+        # permissioning in the engines, not by string blacklists.
+        url_param = params.get("url")
+        if url_param:
+            try:
+                validate_public_url(str(url_param))
+            except BlockedURLError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         router: Router = request.app.state.router
         try:
@@ -149,6 +228,19 @@ def create_app() -> FastAPI:
     def providers(request: Request) -> dict[str, Any]:
         registry: ProviderRegistry = request.app.state.registry
         return {"providers": [_provider_info(p) for p in registry.all()]}
+
+    @app.get("/api/v1/profile")
+    def profile(request: Request) -> dict[str, Any]:
+        """Deployment profile: branding + enabled capabilities. The web shell
+        reads this at boot to white-label itself per client (Samsung, LG, ...)."""
+        settings: ZeroparkSettings = request.app.state.settings
+        registry: ProviderRegistry = request.app.state.registry
+        return {
+            "branding": settings.branding.model_dump(),
+            "environment": settings.environment,
+            "capabilities": sorted(c.value for c in registry.capabilities()),
+            "features": settings.features,
+        }
 
     @app.get("/catalog")
     def catalog() -> dict[str, Any]:
@@ -198,6 +290,55 @@ def create_app() -> FastAPI:
         result["mode"] = body.mode
         result["initiated_by"] = current_user.get("user_id")
         return result
+
+    @app.post("/api/v1/tasks/stream")
+    async def stream_task(
+        request: Request,
+        body: TaskCreateRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> StreamingResponse:
+        """Run a task and stream progress as Server-Sent Events (text/event-stream).
+
+        Each SSE `data:` line is a RunEvent JSON: a `status` (started), optional
+        engine events, one `artifact` event per output, then `done` carrying the
+        full TaskResult. The web shell renders a live run timeline from these.
+        """
+        router = _router(request)
+        try:
+            plan = router.plan(body.mode)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}") from exc
+        try:
+            provider = router.select(plan.primary, prefer=body.provider_id)
+        except NoProviderForCapability as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        task = TaskRequest(
+            prompt=body.prompt,
+            capability=plan.primary,
+            params=body.params,
+            provider_id=body.provider_id,
+            tenant=body.tenant,
+        )
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
+
+        async def event_source():
+            def sse(payload: dict[str, Any]) -> str:
+                return f"data: {json.dumps(payload, default=str)}\n\n"
+
+            try:
+                async for event in provider.stream(task, task_id=task_id):
+                    yield sse(event.model_dump(mode="json"))
+            except (ProviderNotConfigured, ZeroparkError) as exc:
+                yield sse({"type": "error", "task_id": task_id, "message": str(exc)})
+            except httpx.HTTPError as exc:
+                yield sse({"type": "error", "task_id": task_id, "message": f"Engine fetch error: {exc}"})
+
+        return StreamingResponse(
+            event_source(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/v1/rag/upload")
     async def rag_upload(request: Request, files: list[UploadFile] = File(...), current_user: dict = Depends(get_current_user)) -> dict[str, Any]:

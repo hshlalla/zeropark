@@ -12,7 +12,7 @@ description = "Zeropark — native, OSS-referenced AI-workspace framework (one s
 requires-python = ">=3.11"
 
 [tool.uv.workspace]
-members = ["packages/zeropark-core", "packages/zeropark-engines", "services/gateway"]
+members = ["packages/zeropark-core", "packages/zeropark-engines", "services/gateway", "services/control-plane"]
 exclude = ["external/*", "packages/zeropark-adapters"]
 
 [tool.uv.sources]
@@ -33,5 +33,6 @@ testpaths = [
     "packages/zeropark-core/tests",
     "packages/zeropark-engines/tests",
     "services/gateway/tests",
+    "services/control-plane/tests",
 ]
 norecursedirs = ["external", "packages/zeropark-adapters", "*.egg-info", ".git"]
