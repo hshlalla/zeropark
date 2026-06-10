@@ -174,16 +174,37 @@ class DeepResearchEngine(NativeEngine):
     async def _run(
         self, task: TaskRequest, task_id: str, emit: Callable[[RunEvent], None]
     ) -> TaskResult:
-        plan = await self._plan(task.prompt)
-        emit(
-            RunEvent(
-                type="status",
-                task_id=task_id,
-                provider_id=self.id,
-                message="plan",
-                data={"phase": "plan", "plan": plan},
+        plan = task.params.get("plan")
+        if not plan:
+            plan = await self._plan(task.prompt)
+            emit(
+                RunEvent(
+                    type="status",
+                    task_id=task_id,
+                    provider_id=self.id,
+                    message="plan",
+                    data={"phase": "plan", "plan": plan},
+                )
             )
-        )
+
+            hitl = str(task.params.get("hitl", "false")).lower() == "true"
+            if hitl:
+                artifact = Artifact(
+                    id=self.new_id("plan"),
+                    kind="data",
+                    title="Research Plan (Pending Review)",
+                    mime_type="application/json",
+                    inline=json.dumps(plan, ensure_ascii=False)
+                )
+                return TaskResult(
+                    task_id=task_id,
+                    status=TaskStatus.PAUSED,
+                    capability=Capability.RESEARCH,
+                    provider_id=self.id,
+                    artifacts=[artifact],
+                    sources=[],
+                    metrics={"model": self.model},
+                )
 
         drafts: list[tuple[str, str]] = []
         all_sources: list[SourceRef] = []
@@ -284,8 +305,10 @@ class DeepResearchEngine(NativeEngine):
                 provider_id=self.id,
                 data={"artifact": artifact.model_dump(mode="json")},
             )
+        
+        event_type = "pause" if result.status == TaskStatus.PAUSED else "done"
         yield RunEvent(
-            type="done",
+            type=event_type,
             task_id=task_id,
             provider_id=self.id,
             data={"status": result.status.value, "result": result.model_dump(mode="json")},

@@ -27,6 +27,7 @@ class TaskStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PAUSED = "paused"
 
 
 class TaskRequest(BaseModel):
@@ -68,7 +69,7 @@ class Artifact(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-EventType = Literal["status", "log", "source", "artifact", "error", "token", "done"]
+EventType = Literal["status", "log", "source", "artifact", "error", "token", "done", "pause"]
 
 
 class RunEvent(BaseModel):
