@@ -15,7 +15,7 @@ from typing import Any
 from zeropark_core.registry import ProviderRegistry
 from zeropark_core.store import LocalArtifactStore
 
-from zeropark_engines.crawl import LocalCrawlEngine
+from zeropark_engines.crawl import LocalCrawlEngine, LLMCrawlEngine
 from zeropark_engines.search import WebSearchEngine
 from zeropark_engines.slides import PptxSlidesEngine, LLMSlidesEngine
 from zeropark_engines.sheets import OpenpyxlSheetsEngine, LLMSheetsEngine
@@ -61,11 +61,13 @@ def build_registry(
 
     # Register Playwright Browse Engine if playwright is installed
     playwright_available = False
+    browse_engine = None
     if enabled("browse"):
         try:
             import playwright  # noqa: F401
             playwright_available = True
-            registry.register(PlaywrightBrowseEngine(store=store))
+            browse_engine = PlaywrightBrowseEngine(store=store)
+            registry.register(browse_engine)
         except ImportError:
             pass
 
@@ -100,6 +102,13 @@ def build_registry(
                     crawl_engine=crawl_engine,
                 )
             )
+
+        if enabled("crawl"):
+            registry.register(LLMCrawlEngine(
+                llm_client=llm_client,
+                browse_engine=browse_engine,
+                model_name=llm.get("model") or "gpt-4o-mini",
+            ))
 
         if enabled("slides"):
             registry.register(LLMSlidesEngine(llm_client=llm_client, renderer=pptx_renderer))
