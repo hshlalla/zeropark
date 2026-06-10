@@ -31,6 +31,9 @@ from zeropark_gateway.auth import get_current_user, get_current_admin_user, auth
 from zeropark_gateway.admin import admin_router
 from zeropark_gateway.workflow import workflow_router
 from zeropark_gateway.jobs import jobs_router
+from zeropark_gateway.prompt import prompt_router
+from zeropark_gateway.dataset import dataset_router
+from zeropark_gateway.observability import observability_router
 from zeropark_gateway.catalog import get_reference_catalog
 from zeropark_gateway.exceptions import setup_exception_handlers
 from zeropark_gateway.models import (
@@ -82,6 +85,14 @@ def apply_profile(app: FastAPI, profile: dict[str, Any]) -> bool:
     features = profile.get("features")
     if features is not None and features != settings.features:
         settings.features = features
+        changed = True
+
+    preferences = profile.get("preferences")
+    if preferences is not None and preferences != settings.capability_preferences:
+        settings.capability_preferences = preferences
+        changed = True
+
+    if changed:
         registry = build_registry(
             output_dir=settings.output_dir,
             search=settings.search_kwargs(),
@@ -90,7 +101,6 @@ def apply_profile(app: FastAPI, profile: dict[str, Any]) -> bool:
         )
         app.state.registry = registry
         app.state.router = Router(registry, preferences=settings.capability_preferences)
-        changed = True
 
     return changed
 
@@ -172,6 +182,9 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(workflow_router)
     app.include_router(jobs_router)
+    app.include_router(prompt_router)
+    app.include_router(dataset_router)
+    app.include_router(observability_router)
 
     def _router(request: Request) -> Router:
         return request.app.state.router

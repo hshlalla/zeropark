@@ -113,3 +113,61 @@ class Edge(Base):
     target_node_id = Column(String, ForeignKey("nodes.id"), nullable=False)
     
     workflow = relationship("Workflow", back_populates="edges")
+
+class PromptTemplate(Base):
+    """Container for prompt versions."""
+    __tablename__ = "prompt_templates"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    versions = relationship("PromptVersion", back_populates="template", cascade="all, delete-orphan")
+
+class PromptVersion(Base):
+    """A specific immutable version of a prompt."""
+    __tablename__ = "prompt_versions"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    template_id = Column(String, ForeignKey("prompt_templates.id"), nullable=False)
+    version_tag = Column(String, nullable=False) # e.g. 'v1', 'v2'
+    content = Column(String, nullable=False)
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    template = relationship("PromptTemplate", back_populates="versions")
+
+class Dataset(Base):
+    """Knowledge base dataset for RAG."""
+    __tablename__ = "datasets"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    documents = relationship("Document", back_populates="dataset", cascade="all, delete-orphan")
+
+class Document(Base):
+    """A file or text uploaded to a dataset."""
+    __tablename__ = "documents"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    dataset_id = Column(String, ForeignKey("datasets.id"), nullable=False)
+    filename = Column(String, nullable=False)
+    status = Column(String, default="pending") # pending, processing, completed, error
+    word_count = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    dataset = relationship("Dataset", back_populates="documents")
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+
+class DocumentChunk(Base):
+    """A single embedded chunk of a document."""
+    __tablename__ = "document_chunks"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    document_id = Column(String, ForeignKey("documents.id"), nullable=False)
+    content = Column(String, nullable=False)
+    vector_id = Column(String, nullable=True) # ID in Qdrant
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    document = relationship("Document", back_populates="chunks")

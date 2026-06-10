@@ -32,10 +32,9 @@ from zeropark_engines.sandbox import DockerSandbox, PythonSandbox
 
 DEFAULT_MAX_ITERATIONS = 15
 
-SYSTEM_PROMPT = """You are Zeropark's Super Agent: a capable autonomous assistant.
-Work step by step. Use the provided tools to gather facts, run computations, and
-interact with external systems. Cite URLs you used. When you have everything you
-need, reply with the final answer in well-structured markdown (no tool call)."""
+PLANNER_PROMPT = """You are the Planner. Analyze the user's request and create a concise, step-by-step research execution plan. Do not execute the plan, just return the numbered list of steps."""
+RESEARCHER_PROMPT = """You are the Researcher. Execute the following plan step-by-step using the provided tools to gather facts and run computations. Cite your sources. Return your comprehensive research notes when finished."""
+REPORTER_PROMPT = """You are the Reporter. Using the provided research notes, write the final comprehensive response to the user's original request in well-structured markdown."""
 
 
 def _build_sandbox() -> Optional[Any]:
@@ -218,29 +217,43 @@ class SuperAgentEngine(NativeEngine):
         model = request.params.get("model") or self.model
         max_iterations = int(request.params.get("max_iterations") or self.max_iterations)
 
-        messages = [
-            ChatMessage(role="system", content=SYSTEM_PROMPT),
-            ChatMessage(role="user", content=request.prompt),
-        ]
-
-        final_answer = ""
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        iterations = 0
         start_time = time.time()
 
+        # ----------------------------------------------------- Phase 1: Planner
+        emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message="[Planner] Analyzing request and creating execution plan...", data={"phase": "thought", "iteration": 0}))
+        plan_messages = [
+            ChatMessage(role="system", content=PLANNER_PROMPT),
+            ChatMessage(role="user", content=request.prompt),
+        ]
+        plan_response = await self.llm_client.achat_completion(plan_messages, model=model, temperature=self.temperature)
+        total_prompt_tokens += plan_response.prompt_tokens
+        total_completion_tokens += plan_response.completion_tokens
+        plan_text = plan_response.content or "No plan generated."
+        emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message=f"[Planner] Plan created:\n{plan_text}", data={"phase": "observation", "iteration": 0}))
+
+        # -------------------------------------------------- Phase 2: Researcher
+        emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message="[Researcher] Executing plan using tools...", data={"phase": "thought", "iteration": 1}))
+        research_messages = [
+            ChatMessage(role="system", content=f"{RESEARCHER_PROMPT}\n\nExecution Plan:\n{plan_text}"),
+            ChatMessage(role="user", content=request.prompt),
+        ]
+        
+        research_notes = ""
+        iterations = 0
         for iterations in range(1, max_iterations + 1):
             response = await self.llm_client.achat_completion(
-                messages, model=model, temperature=self.temperature, tools=tools or None
+                research_messages, model=model, temperature=self.temperature, tools=tools or None
             )
             total_prompt_tokens += response.prompt_tokens
             total_completion_tokens += response.completion_tokens
 
             if not response.tool_calls:
-                final_answer = response.content
+                research_notes = response.content or "No findings."
                 break
 
-            messages.append(
+            research_messages.append(
                 ChatMessage(
                     role="assistant",
                     content=response.content or "",
@@ -248,44 +261,22 @@ class SuperAgentEngine(NativeEngine):
                 )
             )
             if response.content:
-                emit(
-                    RunEvent(
-                        type="log",
-                        task_id=task_id,
-                        provider_id=self.id,
-                        message=response.content,
-                        data={"phase": "thought", "iteration": iterations},
-                    )
-                )
+                emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message=response.content, data={"phase": "thought", "iteration": iterations}))
 
             for tool_call in response.tool_calls:
                 try:
                     arguments = json.loads(tool_call.arguments) if tool_call.arguments else {}
                 except json.JSONDecodeError:
                     arguments = {}
-                emit(
-                    RunEvent(
-                        type="status",
-                        task_id=task_id,
-                        provider_id=self.id,
-                        message=f"tool:{tool_call.name}",
-                        data={"phase": "action", "tool": tool_call.name, "arguments": arguments},
-                    )
-                )
+                emit(RunEvent(type="status", task_id=task_id, provider_id=self.id, message=f"tool:{tool_call.name}", data={"phase": "action", "tool": tool_call.name, "arguments": arguments}))
+                
                 try:
                     observation = await self._execute_tool(tool_call.name, arguments)
                 except Exception as exc:
                     observation = f"Tool execution error: {exc}"
-                emit(
-                    RunEvent(
-                        type="log",
-                        task_id=task_id,
-                        provider_id=self.id,
-                        message=str(observation)[:500],
-                        data={"phase": "observation", "tool": tool_call.name},
-                    )
-                )
-                messages.append(
+                
+                emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message=str(observation)[:500], data={"phase": "observation", "tool": tool_call.name}))
+                research_messages.append(
                     ChatMessage(
                         role="tool",
                         content=str(observation),
@@ -294,8 +285,20 @@ class SuperAgentEngine(NativeEngine):
                     )
                 )
 
-        if not final_answer:
-            final_answer = "Max iterations reached without a final answer."
+        if not research_notes:
+            research_notes = "Max iterations reached. Incomplete research."
+        emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message=f"[Researcher] Research finished. Notes compiled ({len(research_notes)} chars).", data={"phase": "observation", "iteration": iterations}))
+
+        # ---------------------------------------------------- Phase 3: Reporter
+        emit(RunEvent(type="log", task_id=task_id, provider_id=self.id, message="[Reporter] Writing final response...", data={"phase": "thought", "iteration": iterations+1}))
+        report_messages = [
+            ChatMessage(role="system", content=f"{REPORTER_PROMPT}\n\nResearch Notes:\n{research_notes}"),
+            ChatMessage(role="user", content=request.prompt),
+        ]
+        report_response = await self.llm_client.achat_completion(report_messages, model=model, temperature=self.temperature)
+        total_prompt_tokens += report_response.prompt_tokens
+        total_completion_tokens += report_response.completion_tokens
+        final_answer = report_response.content or "Failed to generate report."
 
         artifact = Artifact(
             id=f"{task_id}_agent_result",

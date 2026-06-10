@@ -346,3 +346,41 @@ class DAGOrchestrator:
     async def _node_sheets(self, node: WorkflowNode) -> str:
         self.context[f"{node.id}_result"] = "Sheets Engine Triggered: (Excel Artifact generated in store)"
         return self.context[f"{node.id}_result"]
+
+    async def _node_loop(self, node: WorkflowNode) -> Any:
+        """A Map-Reduce style loop node that iterates over a list and executes a sub-node."""
+        iterator_var = node.data.get("iterator_var", "")
+        item_var = node.data.get("item_var", "item")
+        
+        # Resolve the list to iterate over
+        items = self.context.get(iterator_var)
+        if isinstance(items, str):
+            try:
+                items = json.loads(items)
+            except Exception:
+                items = [items]
+        if not isinstance(items, list):
+            raise ValueError(f"Loop iterator '{iterator_var}' must resolve to a list.")
+            
+        sub_node_data = node.data.get("sub_node")
+        if not sub_node_data:
+            raise ValueError("Loop node requires a 'sub_node' configuration.")
+            
+        # Create a mock node for the sub-execution
+        sub_node = WorkflowNode(id=f"{node.id}_sub", type=sub_node_data.get("type", "python"), data=sub_node_data.get("data", {}))
+        
+        results = []
+        for idx, item in enumerate(items):
+            # inject loop item into context
+            self.context[item_var] = item
+            self.context[f"{item_var}_index"] = idx
+            
+            # Execute the sub_node
+            try:
+                res = await self._execute_node(sub_node)
+                results.append(res)
+            except Exception as e:
+                results.append(f"Error at index {idx}: {str(e)}")
+                
+        self.context[f"{node.id}_result"] = results
+        return results

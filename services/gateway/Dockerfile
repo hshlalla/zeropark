@@ -7,8 +7,8 @@ COPY packages/zeropark-core /app/packages/zeropark-core
 COPY packages/zeropark-engines /app/packages/zeropark-engines
 COPY services/gateway /app/services/gateway
 
-# Install Docker CLI and Node.js (for MCP servers)
-RUN apt-get update && apt-get install -y docker.io curl nodejs npm && rm -rf /var/lib/apt/lists/*
+# Install Docker CLI, Node.js (for MCP servers), and LibreOffice (for PPTX to PDF conversion)
+RUN apt-get update && apt-get install -y docker.io curl nodejs npm libreoffice-core libreoffice-impress && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
     -e packages/zeropark-core \
