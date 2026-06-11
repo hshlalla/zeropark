@@ -1,25 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getToken } from '../api';
-import { Plus, X, Bot, Zap, Filter, Compass, Activity } from 'lucide-react';
+import { Plus, X, Compass, Activity, Trash2 } from 'lucide-react';
+import { API_BASE, authFetch, isAdmin } from '../api';
+import { StatsWidget } from '../components/widgets/StatsWidget';
 
 interface AppInfo {
   id: string;
   name: string;
   mode: string;
-  description: string;
-  createdAt: string;
+  description: string | null;
+  published?: boolean;
+  created_at?: string | null;
 }
 
 interface BackendMode {
   primary: string;
   pipeline: string[];
   description: string;
+  available?: boolean;
 }
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [stats, setStats] = useState<any>(null);
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [modes, setModes] = useState<Record<string, BackendMode>>({});
   
@@ -29,65 +31,77 @@ const Dashboard: React.FC = () => {
   const [selectedMode, setSelectedMode] = useState('');
 
   useEffect(() => {
-    // 1. Fetch Backend Stats
-    const fetchStats = async () => {
-      try {
-        const token = getToken();
-        if(!token) return;
-        const res = await fetch('http://localhost:8000/api/v1/admin/stats', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if(res.ok) setStats(await res.json());
-      } catch (err) {
-        console.error(err);
-      }
-    };
 
     // 2. Fetch Available Modes (Templates)
     const fetchModes = async () => {
       try {
-        const res = await fetch('http://localhost:8000/modes');
+        const res = await fetch(`${API_BASE}/modes`);
         if(res.ok) {
           const data = await res.json();
           setModes(data.modes);
-          if (Object.keys(data.modes).length > 0) {
-            setSelectedMode(Object.keys(data.modes)[0]);
-          }
+          // default to the first mode this deployment can actually serve
+          const firstAvailable = Object.keys(data.modes).find(
+            (k) => data.modes[k].available !== false
+          );
+          if (firstAvailable) setSelectedMode(firstAvailable);
         }
       } catch (err) {
         console.error(err);
       }
     };
 
-    // 3. Load user apps from localStorage
-    const savedApps = localStorage.getItem('zp_apps');
-    if (savedApps) {
-      setApps(JSON.parse(savedApps));
-    }
-
-    fetchStats();
+    // 3. Load apps from the SERVER registry (admin builds, everyone uses)
+    fetchApps();
     fetchModes();
   }, []);
 
-  const handleCreateApp = (e: React.FormEvent) => {
+  const fetchApps = async () => {
+    try {
+      const res = await authFetch('/api/v1/apps');
+      if (res.ok) setApps((await res.json()).apps);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateApp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!appName || !selectedMode) return;
-
-    const newApp: AppInfo = {
-      id: `app_${Date.now()}`,
-      name: appName,
-      mode: selectedMode,
-      description: modes[selectedMode]?.description || 'Custom Agent Workspace',
-      createdAt: new Date().toISOString()
-    };
-
-    const updatedApps = [...apps, newApp];
-    setApps(updatedApps);
-    localStorage.setItem('zp_apps', JSON.stringify(updatedApps));
-    
+    try {
+      const res = await authFetch('/api/v1/apps', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: appName,
+          mode: selectedMode,
+          description: modes[selectedMode]?.description || 'Custom Agent Workspace',
+          published: true,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error?.message || err?.detail || '에이전트 생성에 실패했습니다.');
+        return;
+      }
+      await fetchApps();
+    } catch (err) {
+      console.error(err);
+    }
     // Reset modal
     setAppName('');
     setIsModalOpen(false);
+  };
+
+  const handleDeleteApp = async (e: React.MouseEvent, appId: string) => {
+    e.stopPropagation(); // don't navigate into the app being deleted
+    const target = apps.find(a => a.id === appId);
+    if (!window.confirm(`'${target?.name ?? appId}' 에이전트를 삭제할까요? 모든 사용자에게서 사라집니다.`)) return;
+    const res = await authFetch(`/api/v1/apps/${appId}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error?.message || err?.detail || '삭제 권한이 없습니다.');
+      return;
+    }
+    await fetchApps();
   };
 
   return (
@@ -99,13 +113,15 @@ const Dashboard: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>Manage your AI Agents and automated workflows.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="btn-primary" 
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '1rem' }}
-        >
-          <Plus size={20} /> Create Agent
-        </button>
+        {isAdmin() && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '1rem' }}
+          >
+            <Plus size={20} /> Create Agent
+          </button>
+        )}
       </div>
 
       <div>
@@ -134,17 +150,33 @@ const Dashboard: React.FC = () => {
                 border: '1px solid var(--border-color)', position: 'relative'
               }}
             >
-              <div style={{ position: 'absolute', top: '1rem', right: '1rem', display: 'flex', gap: '0.5rem' }}>
-                <span style={{ 
-                  padding: '0.25rem 0.5rem', 
-                  backgroundColor: 'var(--bg-color)', 
-                  border: '1px solid var(--border-color)', 
-                  borderRadius: '16px', 
-                  fontSize: '0.75rem', 
-                  color: 'var(--text-secondary)' 
+              <div style={{ position: 'absolute', top: '1rem', right: '1rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{
+                  padding: '0.25rem 0.5rem',
+                  backgroundColor: 'var(--bg-color)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '16px',
+                  fontSize: '0.75rem',
+                  color: 'var(--text-secondary)'
                 }}>
                   {app.mode}
                 </span>
+                {isAdmin() && (
+                <button
+                  onClick={(e) => handleDeleteApp(e, app.id)}
+                  title="에이전트 삭제 (모든 사용자에게서 제거됨)"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: '28px', height: '28px', borderRadius: '8px',
+                    color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)', cursor: 'pointer'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.18)'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)'}
+                >
+                  <Trash2 size={15} />
+                </button>
+                )}
               </div>
 
               <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -153,7 +185,7 @@ const Dashboard: React.FC = () => {
               <div>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: '700', marginBottom: '0.25rem', paddingRight: '100px' }}>{app.name}</h3>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {app.mode} • Created {new Date(app.createdAt).toLocaleDateString()}
+                  {app.mode}{app.created_at ? ` • Created ${new Date(app.created_at).toLocaleDateString()}` : ''}
                 </span>
               </div>
             </div>
@@ -162,33 +194,9 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Stats Section */}
-      {stats && (
-        <div style={{ marginTop: '3rem' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: '600', marginBottom: '1rem' }}>System Overview</h2>
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Total Users</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.total_users}</h3>
-            </div>
-            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Google Logins</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.google_users}</h3>
-            </div>
-            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Available Templates</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{Object.keys(modes).length}</h3>
-            </div>
-            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Total Workflows</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.total_workflows !== undefined ? stats.total_workflows : '-'}</h3>
-            </div>
-            <div className="glass-panel" style={{ flex: '1 1 200px', padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Chat Sessions</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '700' }}>{stats.total_chats !== undefined ? stats.total_chats : '-'}</h3>
-            </div>
-          </div>
-        </div>
-      )}
+      <div style={{ marginTop: '3rem', maxWidth: '500px' }}>
+        <StatsWidget />
+      </div>
 
       {/* Create App Modal */}
       {isModalOpen && (
@@ -231,31 +239,40 @@ const Dashboard: React.FC = () => {
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>App Template (Mode)</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
-                  {Object.entries(modes).map(([modeId, modeData]) => (
-                    <label 
-                      key={modeId} 
+                  {Object.entries(modes).map(([modeId, modeData]) => {
+                    const unavailable = modeData.available === false;
+                    return (
+                    <label
+                      key={modeId}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: '1rem',
                         padding: '1rem', borderRadius: 'var(--radius-md)',
                         border: `1px solid ${selectedMode === modeId ? 'var(--primary-color)' : 'var(--border-color)'}`,
                         backgroundColor: selectedMode === modeId ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
-                        cursor: 'pointer', transition: 'all 0.2s ease'
+                        cursor: unavailable ? 'not-allowed' : 'pointer',
+                        opacity: unavailable ? 0.45 : 1,
+                        transition: 'all 0.2s ease'
                       }}
                     >
-                      <input 
-                        type="radio" 
-                        name="mode" 
-                        value={modeId} 
+                      <input
+                        type="radio"
+                        name="mode"
+                        value={modeId}
                         checked={selectedMode === modeId}
+                        disabled={unavailable}
                         onChange={() => setSelectedMode(modeId)}
                         style={{ marginTop: '0.25rem' }}
                       />
                       <div>
-                        <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>{modeId}</div>
+                        <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>
+                          {modeId}
+                          {unavailable && <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.1rem 0.4rem' }}>미구성</span>}
+                        </div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{modeData.description}</div>
                       </div>
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

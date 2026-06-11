@@ -1,17 +1,16 @@
 import React from 'react';
-import { LogIn } from 'lucide-react';
 
-import { setToken } from '../api';
+import { setToken, API_BASE } from '../api';
 
 const Login: React.FC = () => {
   const handleGoogleLogin = () => {
     // Redirect to backend OAuth endpoint
-    window.location.href = 'http://localhost:8000/api/v1/auth/google/login';
+    window.location.href = `${API_BASE}/api/v1/auth/google/login`;
   };
 
   const handleGuestLogin = async (role: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/auth/guest/login?role=${role}`, {
+      const res = await fetch(`${API_BASE}/api/v1/auth/guest/login?role=${role}`, {
         method: 'POST',
       });
       if (res.ok) {

@@ -176,6 +176,13 @@ class OpenAILLMClient(BaseLLMClient):
             model=response.model,
         )
 
+    @staticmethod
+    def _is_reasoning_model(model: str) -> bool:
+        """Reasoning-family models (gpt-5*, o1*, o3*, o4*) reject custom
+        temperature and require max_completion_tokens instead of max_tokens."""
+        name = model.lower()
+        return name.startswith(("gpt-5", "o1", "o3", "o4"))
+
     def _create_kwargs(
         self,
         messages: List[ChatMessage],
@@ -188,11 +195,16 @@ class OpenAILLMClient(BaseLLMClient):
         create_kwargs: dict[str, Any] = {
             "model": model,
             "messages": self._to_oai_messages(messages),
-            "temperature": temperature,
             **kwargs,
         }
-        if max_tokens is not None:
-            create_kwargs["max_tokens"] = max_tokens
+        if self._is_reasoning_model(model):
+            # only the default temperature (1) is supported — omit it
+            if max_tokens is not None:
+                create_kwargs["max_completion_tokens"] = max_tokens
+        else:
+            create_kwargs["temperature"] = temperature
+            if max_tokens is not None:
+                create_kwargs["max_tokens"] = max_tokens
         if tools:
             create_kwargs["tools"] = tools
         return create_kwargs

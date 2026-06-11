@@ -8,6 +8,15 @@ from __future__ import annotations
 
 import uuid
 import os
+
+# Load .env into os.environ BEFORE any module reads it directly (auth.py reads
+# SECRET_KEY via os.environ; pydantic-settings only covers ZEROPARK_* fields).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 import json
 import asyncio
 from contextlib import asynccontextmanager
@@ -28,6 +37,13 @@ from zeropark_core.provider import Provider
 from zeropark_engines import build_registry
 
 from zeropark_gateway.auth import get_current_user, get_current_admin_user, auth_router
+from zeropark_gateway.apps import apps_router
+from zeropark_gateway.knowledge import (
+    knowledge_router,
+    can_read_collection,
+    ensure_default_collection,
+    readable_collection_ids,
+)
 from zeropark_gateway.admin import admin_router
 from zeropark_gateway.workflow import workflow_router
 from zeropark_gateway.jobs import jobs_router
@@ -50,6 +66,41 @@ class RagUploadRequest(BaseModel):
 class RagQueryRequest(BaseModel):
     query: str
     provider_id: str | None = None
+    # optionally narrow the search to one collection (must be readable)
+    collection_id: str | None = None
+
+
+class UsageTracker:
+    """In-process usage counters, reported to the control plane on heartbeat.
+
+    Cumulative since process start — the control plane stores the latest
+    snapshot per deployment, so restarts simply reset the baseline.
+    """
+
+    def __init__(self) -> None:
+        self.tasks_total = 0
+        self.tasks_failed = 0
+        self.tokens_total = 0
+        self.by_capability: dict[str, int] = {}
+
+    def record(self, capability: str, result: dict[str, Any] | None, *, failed: bool = False) -> None:
+        self.tasks_total += 1
+        if failed:
+            self.tasks_failed += 1
+        self.by_capability[capability] = self.by_capability.get(capability, 0) + 1
+        metrics = (result or {}).get("metrics") or {}
+        try:
+            self.tokens_total += int(metrics.get("total_tokens", 0))
+        except (TypeError, ValueError):
+            pass
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "tasks_total": self.tasks_total,
+            "tasks_failed": self.tasks_failed,
+            "tokens_total": self.tokens_total,
+            "by_capability": dict(self.by_capability),
+        }
 
 
 def build_state() -> tuple[ProviderRegistry, Router, ZeroparkSettings]:
@@ -119,6 +170,7 @@ async def _heartbeat_loop(app: FastAPI, settings: ZeroparkSettings) -> None:
                         "license_key": cp.license_key,
                         "version": app.version,
                         "capabilities": sorted(c.value for c in registry.capabilities()),
+                        "usage": app.state.usage.snapshot(),
                     },
                 )
             if response.status_code == 200:
@@ -160,7 +212,13 @@ def create_app() -> FastAPI:
     
     _cors_origins = [
         o.strip()
-        for o in os.environ.get("ZEROPARK_CORS_ORIGINS", "http://localhost:3000").split(",")
+        for o in os.environ.get(
+            "ZEROPARK_CORS_ORIGINS",
+            # local web shells: vite dev (5173), CRA (3000), docker web (80),
+            # plus 127.0.0.1 variants (the browser treats them as a different origin)
+            "http://localhost:5173,http://localhost:3000,http://localhost,"
+            "http://127.0.0.1:5173,http://127.0.0.1:3000,http://127.0.0.1",
+        ).split(",")
         if o.strip()
     ]
     app.add_middleware(
@@ -177,11 +235,14 @@ def create_app() -> FastAPI:
     app.state.registry = registry
     app.state.router = router
     app.state.settings = settings
+    app.state.usage = UsageTracker()
 
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(workflow_router)
     app.include_router(jobs_router)
+    app.include_router(apps_router)
+    app.include_router(knowledge_router)
     app.include_router(prompt_router)
     app.include_router(dataset_router)
     app.include_router(observability_router)
@@ -218,15 +279,20 @@ def create_app() -> FastAPI:
             prompt=prompt, capability=capability, params=params, provider_id=provider_id, tenant=tenant
         )
         task_id = f"task_{uuid.uuid4().hex[:12]}"
+        usage: UsageTracker = request.app.state.usage
         try:
             result = await provider.execute(task, task_id=task_id)
         except ProviderNotConfigured as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except httpx.HTTPError as exc:
+            usage.record(capability.value, None, failed=True)
             raise HTTPException(status_code=502, detail=f"Engine fetch error: {exc}") from exc
         except ZeroparkError as exc:
+            usage.record(capability.value, None, failed=True)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        usage.record(capability.value, payload, failed=result.status.value == "failed")
+        return payload
 
     @app.get("/health")
     def health(request: Request) -> dict[str, Any]:
@@ -255,6 +321,11 @@ def create_app() -> FastAPI:
             "features": settings.features,
         }
 
+    @app.get("/api/v1/usage")
+    def usage_snapshot(request: Request) -> dict[str, Any]:
+        """Cumulative usage counters for this process (also sent on heartbeat)."""
+        return request.app.state.usage.snapshot()
+
     @app.get("/catalog")
     def catalog() -> dict[str, Any]:
         return {"references": get_reference_catalog()}
@@ -262,12 +333,17 @@ def create_app() -> FastAPI:
     @app.get("/modes")
     def modes(request: Request) -> dict[str, Any]:
         router = _router(request)
+        registry: ProviderRegistry = request.app.state.registry
+        served = registry.capabilities()
         return {
             "modes": {
                 name: {
                     "primary": plan.primary.value,
                     "pipeline": [c.value for c in plan.pipeline],
                     "description": plan.description,
+                    # whether THIS deployment has an engine for the mode's
+                    # primary capability — the UI greys out unavailable modes
+                    "available": plan.primary in served,
                 }
                 for name, plan in router.modes.items()
             }
@@ -354,17 +430,32 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/api/v1/rag/upload")
-    async def rag_upload(request: Request, files: list[UploadFile] = File(...), current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    async def rag_upload(
+        request: Request,
+        files: list[UploadFile] = File(...),
+        collection_id: str = "default",
+        current_user: dict = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        await ensure_default_collection()
+        role = current_user.get("role", "user")
+        # Upload permission = read permission on the target collection
+        # (admins can read every collection, so they can upload anywhere).
+        if not await can_read_collection(role, collection_id):
+            raise HTTPException(
+                status_code=403,
+                detail=f"You cannot upload into collection '{collection_id}'.",
+            )
+
         texts = []
         for file in files:
             content = await file.read()
             # Basic text extraction (assuming .txt files for now)
-            # In a real scenario, you'd use a PDF parser or similar here
             texts.append(content.decode("utf-8", errors="ignore"))
-            
+
         params = {
             "context_texts": texts,
-            "user_role": current_user["role"]
+            "collection_id": collection_id,
+            "allowed_collection_ids": [],  # upload-only: no retrieval needed
         }
         return await _run_capability(
             request, Capability.RAG, "upload_only", params, None
@@ -372,9 +463,16 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/rag/query")
     async def rag_query(request: Request, body: RagQueryRequest, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
-        params = {
-            "user_role": current_user["role"]
-        }
+        await ensure_default_collection()
+        role = current_user.get("role", "user")
+        # The readable set is computed server-side from the DB — the client
+        # cannot widen its own access by sending collection ids.
+        allowed = await readable_collection_ids(role)
+        if body.collection_id is not None:
+            if body.collection_id not in allowed:
+                raise HTTPException(status_code=403, detail="No access to this collection.")
+            allowed = [body.collection_id]
+        params = {"allowed_collection_ids": allowed}
         return await _run_capability(
             request, Capability.RAG, body.query, params, body.provider_id
         )

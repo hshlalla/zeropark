@@ -66,7 +66,7 @@ def test_deployment_lifecycle_and_heartbeat(client):
     )
     assert bad.status_code == 401
 
-    # valid heartbeat updates status and returns the live profile
+    # valid heartbeat updates status, stores usage, and returns the live profile
     hb = client.post(
         "/api/v1/heartbeat",
         json={
@@ -74,6 +74,8 @@ def test_deployment_lifecycle_and_heartbeat(client):
             "license_key": license_key,
             "version": "0.1.0",
             "capabilities": ["crawl", "slides"],
+            "usage": {"tasks_total": 12, "tasks_failed": 1, "tokens_total": 3400,
+                      "by_capability": {"slides": 12}},
         },
     )
     assert hb.status_code == 200
@@ -83,6 +85,8 @@ def test_deployment_lifecycle_and_heartbeat(client):
     assert fetched["online"] is True
     assert fetched["version"] == "0.1.0"
     assert fetched["capabilities"] == ["crawl", "slides"]
+    assert fetched["usage"]["tasks_total"] == 12
+    assert fetched["usage"]["tokens_total"] == 3400
 
     # deactivating the license blocks heartbeats
     client.patch(f"/api/v1/deployments/{dep_id}", headers=ADMIN, json={"is_active": False})

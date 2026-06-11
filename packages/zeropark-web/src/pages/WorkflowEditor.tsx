@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -11,7 +11,25 @@ import {
 } from '@xyflow/react';
 import type { Connection, Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeft, Save, Play, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Play, Settings, Trash2, CheckCircle, XCircle, MinusCircle } from 'lucide-react';
+import { API_BASE } from '../api';
+
+interface NodeRun {
+  node_id: string;
+  node_type: string;
+  status: 'succeeded' | 'failed' | 'skipped';
+  duration_ms: number;
+  output_preview: string;
+  error: string | null;
+}
+
+// Visual treatment per run status, applied onto the React Flow nodes so the
+// canvas itself shows where the run broke.
+const RUN_STYLES: Record<string, React.CSSProperties> = {
+  succeeded: { border: '2px solid #10b981', boxShadow: '0 0 0 3px rgba(16,185,129,0.15)' },
+  failed:    { border: '2px solid #ef4444', boxShadow: '0 0 0 3px rgba(239,68,68,0.2)' },
+  skipped:   { border: '2px dashed #94a3b8', opacity: 0.55 },
+};
 
 const initialNodes: Node[] = [
   { id: '1', position: { x: 100, y: 100 }, data: { label: 'Start', type: 'trigger' }, type: 'input' },
@@ -19,7 +37,7 @@ const initialNodes: Node[] = [
 const initialEdges: Edge[] = [];
 
 const WorkflowEditor: React.FC = () => {
-  const { appId } = useParams<{ appId: string }>();
+  // const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -28,6 +46,8 @@ const WorkflowEditor: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionLog, setExecutionLog] = useState<string | null>(null);
+  const [nodeRuns, setNodeRuns] = useState<NodeRun[] | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
 
   // When node selection changes
   const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => {
@@ -71,25 +91,36 @@ const WorkflowEditor: React.FC = () => {
     setSelectedNode(null);
   };
 
+  // Paint run results onto the canvas: green = succeeded, red = failed,
+  // grey dashed = skipped (downstream of a failure or an untaken branch).
+  const applyRunStyles = useCallback((runs: NodeRun[]) => {
+    const byId = new Map(runs.map(r => [r.node_id, r]));
+    setNodes((nds) => nds.map((n) => {
+      const run = byId.get(n.id);
+      return { ...n, style: run ? { ...RUN_STYLES[run.status] } : {} };
+    }));
+  }, [setNodes]);
+
   const handleRunWorkflow = async () => {
     setIsExecuting(true);
-    setExecutionLog("Executing workflow across orchestrator...");
-    
-    try {
-      // Format nodes and edges to match backend Pydantic models exactly
-      const formattedNodes = nodes.map(n => ({
-        id: n.id,
-        type: n.data.type || 'unknown',
-        data: n.data
-      }));
+    setExecutionLog(null);
+    setNodeRuns(null);
 
-      const formattedEdges = edges.map((e, idx) => ({
-        id: e.id || `edge_${idx}`,
+    try {
+      // Format nodes and edges to match backend Pydantic models exactly.
+      // The visual 'trigger' start node maps to the engine's 'input' node.
+      const formattedNodes = nodes.map(n => {
+        const rawType = (n.data.type as string) || 'unknown';
+        const engineType = rawType === 'trigger' ? 'input' : rawType;
+        return { id: n.id, data: { ...n.data, type: engineType } };
+      });
+
+      const formattedEdges = edges.map((e) => ({
         source: e.source,
         target: e.target
       }));
 
-      const res = await fetch('http://localhost:8000/api/v1/workflow/run', {
+      const res = await fetch(`${API_BASE}/api/v1/workflow/run`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -102,11 +133,15 @@ const WorkflowEditor: React.FC = () => {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to execute workflow: ${res.statusText}`);
+        const errBody = await res.json().catch(() => null);
+        throw new Error(errBody?.error?.message || errBody?.detail || `Failed to execute workflow: ${res.statusText}`);
       }
 
       const data = await res.json();
-      setExecutionLog(`Success! Orchestrator Results:\n\n${JSON.stringify(data.results, null, 2)}`);
+      const runs: NodeRun[] = data.node_runs || [];
+      setNodeRuns(runs);
+      setLastRunId(data.run_id || null);
+      applyRunStyles(runs);
     } catch (err: any) {
       setExecutionLog(`Execution Failed:\n\n${err.message}`);
     } finally {
@@ -170,12 +205,12 @@ const WorkflowEditor: React.FC = () => {
           <Background gap={12} size={1} color="var(--border-color)" />
         </ReactFlow>
 
-        {/* Execution Log Panel */}
+        {/* Fatal error panel (request-level failure) */}
         {executionLog && (
           <div style={{
             position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', zIndex: 10,
             backgroundColor: 'var(--surface-color)',
-            border: '1px solid var(--border-color)',
+            border: '1px solid rgba(239,68,68,0.4)',
             borderRadius: 'var(--radius-lg)',
             boxShadow: 'var(--shadow-lg)',
             padding: '1rem',
@@ -183,12 +218,72 @@ const WorkflowEditor: React.FC = () => {
             overflowY: 'auto'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <h4 style={{ fontWeight: '600', fontSize: '0.9rem' }}>Execution Logs</h4>
+              <h4 style={{ fontWeight: '600', fontSize: '0.9rem', color: '#ef4444' }}>Execution Error</h4>
               <button onClick={() => setExecutionLog(null)} style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Close</button>
             </div>
             <pre style={{ fontSize: '0.85rem', fontFamily: 'monospace', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
               {executionLog}
             </pre>
+          </div>
+        )}
+
+        {/* Per-node run results panel */}
+        {nodeRuns && (
+          <div style={{
+            position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', zIndex: 10,
+            backgroundColor: 'var(--surface-color)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-lg)',
+            padding: '1rem',
+            maxHeight: '260px',
+            overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h4 style={{ fontWeight: '600', fontSize: '0.9rem' }}>
+                Run Result
+                {nodeRuns.some(r => r.status === 'failed')
+                  ? <span style={{ color: '#ef4444', marginLeft: '0.5rem' }}>— failed</span>
+                  : <span style={{ color: '#10b981', marginLeft: '0.5rem' }}>— succeeded</span>}
+                {lastRunId && <span style={{ color: 'var(--text-secondary)', fontWeight: 400, fontSize: '0.75rem', marginLeft: '0.75rem' }}>run {lastRunId.slice(0, 8)}</span>}
+              </h4>
+              <button onClick={() => { setNodeRuns(null); applyRunStyles([]); }} style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Close</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {nodeRuns.map((run) => (
+                <div
+                  key={run.node_id}
+                  onClick={() => {
+                    const node = nodes.find(n => n.id === run.node_id);
+                    if (node) setSelectedNode(node);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                    padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)',
+                    backgroundColor: run.status === 'failed' ? 'rgba(239,68,68,0.07)' : 'var(--bg-color)',
+                    cursor: 'pointer', fontSize: '0.85rem'
+                  }}
+                >
+                  {run.status === 'succeeded' && <CheckCircle size={16} style={{ color: '#10b981', flexShrink: 0, marginTop: '2px' }} />}
+                  {run.status === 'failed' && <XCircle size={16} style={{ color: '#ef4444', flexShrink: 0, marginTop: '2px' }} />}
+                  {run.status === 'skipped' && <MinusCircle size={16} style={{ color: '#94a3b8', flexShrink: 0, marginTop: '2px' }} />}
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontWeight: 600 }}>{run.node_id}</span>
+                    <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>{run.node_type} · {run.duration_ms}ms</span>
+                    {run.error && (
+                      <div style={{ color: '#ef4444', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', marginTop: '0.25rem' }}>
+                        {run.error}
+                      </div>
+                    )}
+                    {!run.error && run.output_preview && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {run.output_preview}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

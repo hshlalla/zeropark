@@ -11,7 +11,7 @@ from zeropark_engines.base import NativeEngine
 import os
 from typing import Any, Dict, List, Tuple
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchAny
 
 from zeropark_core import Artifact, Capability, TaskRequest, TaskResult, ArtifactStore, TaskStatus
 from zeropark_core.llm import BaseLLMClient, ChatMessage
@@ -34,26 +34,30 @@ class QdrantVectorStore:
         else:
             self.client = QdrantClient(location=":memory:")
         
-        # Test vector dimension (e.g. text-embedding-3-small is usually 1536)
-        # We fetch a dummy embedding to know the dimension
-        dummy_emb = self.llm.create_embeddings(["test"])[0]
-        self.dim = len(dummy_emb)
-        
-        # Init collection if not exists
+        # Vector dimension is detected lazily on first use: probing it here
+        # would make a live embeddings API call at STARTUP, so a bad/missing
+        # key would crash engine registration instead of failing one request.
+        self.dim: int | None = None
+
+    def _ensure_collection(self, dim: int) -> None:
+        if self.dim is not None:
+            return
+        self.dim = dim
         collections = self.client.get_collections().collections
         if not any(c.name == self.collection_name for c in collections):
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=self.dim, distance=Distance.COSINE),
             )
-            
+
     def add_texts(self, texts: List[str], metadatas: List[Dict[str, Any]] = None):
         if not texts:
             return
-            
+
         embeddings = self.llm.create_embeddings(texts)
+        self._ensure_collection(len(embeddings[0]))
         if metadatas is None:
-            metadatas = [{"role": "user"} for _ in texts] # default open to all
+            metadatas = [{"collection_id": "default"} for _ in texts]
             
         points = []
         import uuid
@@ -71,19 +75,30 @@ class QdrantVectorStore:
             points=points
         )
             
-    def similarity_search(self, query: str, user_role: str = "user", k: int = 3) -> List[Tuple[Dict[str, Any], float]]:
+    def similarity_search(
+        self,
+        query: str,
+        allowed_collection_ids: List[str] | None = None,
+        k: int = 3,
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """Search restricted to the logical collections the caller may read.
+
+        `allowed_collection_ids=None` means no restriction (internal/admin use);
+        an empty list means the caller can read nothing and gets no results.
+        """
+        if allowed_collection_ids is not None and len(allowed_collection_ids) == 0:
+            return []
+
         query_emb = self.llm.create_embeddings([query])[0]
-        
-        # RBAC Filtering
-        # If user is 'admin', they can see 'admin' and 'user' docs.
-        # If user is 'user', they can only see 'user' docs.
+        self._ensure_collection(len(query_emb))
+
         query_filter = None
-        if user_role != "admin":
+        if allowed_collection_ids is not None:
             query_filter = Filter(
                 must=[
                     FieldCondition(
-                        key="role",
-                        match=MatchValue(value="user")
+                        key="collection_id",
+                        match=MatchAny(any=allowed_collection_ids),
                     )
                 ]
             )
@@ -113,10 +128,13 @@ class RAGEngine(NativeEngine):
     async def execute(self, request: TaskRequest, task_id: str) -> TaskResult:
         query = request.prompt
         context_texts = request.params.get("context_texts", [])
-        
-        # User Role Context
-        user_role = request.params.get("user_role", "user")
-        
+
+        # Collection-based access control (set by the gateway, not the client):
+        #   collection_id            — where uploads are stored
+        #   allowed_collection_ids   — which collections this caller may read
+        collection_id = request.params.get("collection_id", "default")
+        allowed_ids = request.params.get("allowed_collection_ids")  # None = unrestricted
+
         # 1. If context_texts are provided, chunk them and add them to vector store
         if context_texts:
             all_chunks = []
@@ -124,16 +142,15 @@ class RAGEngine(NativeEngine):
             for text in context_texts:
                 chunks = self.splitter.split_text(text)
                 all_chunks.extend(chunks)
-                # Assign the current user role to the document
-                all_metas.extend([{"role": user_role} for _ in chunks])
-                
+                all_metas.extend([{"collection_id": collection_id} for _ in chunks])
+
             self.vector_store.add_texts(all_chunks, metadatas=all_metas)
-            
-        # 2. Retrieve relevant chunks (Filter by user_role)
-        top_docs = self.vector_store.similarity_search(query, user_role=user_role, k=3)
-        
+
+        # 2. Retrieve relevant chunks, restricted to readable collections
+        top_docs = self.vector_store.similarity_search(query, allowed_collection_ids=allowed_ids, k=3)
+
         # 3. Build context for LLM
-        context_str = "\n\n".join([f"Source (Role: {doc.get('role','unknown')}, Score: {score:.2f}):\n{doc['text']}" for doc, score in top_docs])
+        context_str = "\n\n".join([f"Source (Collection: {doc.get('collection_id','?')}, Score: {score:.2f}):\n{doc['text']}" for doc, score in top_docs])
         
         system_prompt = f"""You are a helpful assistant. Answer the user's question based ONLY on the following context.
 If you cannot answer the question from the context, say "I cannot answer this based on the provided context."
@@ -155,7 +172,7 @@ Context:
             kind="message",
             title="RAG Answer",
             inline=answer,
-            metadata={"retrieved_docs": len(top_docs), "role_filter": user_role}
+            metadata={"retrieved_docs": len(top_docs), "collection_filter": allowed_ids}
         )
         
         return TaskResult(

@@ -30,6 +30,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .key { font-family:monospace; font-size:11px; color:var(--muted); word-break:break-all; }
   #token-bar { display:flex; gap:10px; align-items:center; margin-bottom:20px; }
   #token-bar input { margin:0; max-width:320px; }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover { background:#F8FAFC; }
+  .detail-cell { background:#F8FAFC; padding:16px 20px !important; }
+  .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .stat { display:inline-block; margin-right:18px; }
+  .stat b { font-size:18px; } .stat span { color:var(--muted); font-size:12px; display:block; }
+  .detail-grid textarea { font-family:monospace; font-size:12px; min-height:140px; }
+  h4 { margin:0 0 10px; font-size:13px; color:var(--muted); text-transform:uppercase; }
 </style>
 </head>
 <body>
@@ -71,25 +79,78 @@ async function api(path, opts = {}) {
   if (!res.ok) throw new Error((await res.json()).detail || res.status);
   return res.json();
 }
+let openDetail = null;   // deployment id whose detail row is expanded
+let deployments = [];
+
+function usageHtml(u) {
+  if (!u) return '<span class="sub">아직 보고된 사용량이 없습니다.</span>';
+  const byCap = Object.entries(u.by_capability || {})
+    .map(([k, v]) => `${k}: ${v}`).join(" · ") || "-";
+  return `
+    <div class="stat"><b>${u.tasks_total ?? 0}</b><span>총 작업</span></div>
+    <div class="stat"><b>${u.tasks_failed ?? 0}</b><span>실패</span></div>
+    <div class="stat"><b>${(u.tokens_total ?? 0).toLocaleString()}</b><span>토큰</span></div>
+    <div style="margin-top:8px" class="sub">capability별: ${byCap}</div>`;
+}
+
+function detailRow(d) {
+  return `
+    <tr><td colspan="8" class="detail-cell">
+      <div class="detail-grid">
+        <div>
+          <h4>사용량 (마지막 하트비트 기준)</h4>
+          ${usageHtml(d.usage)}
+          <h4 style="margin-top:16px">배포 정보</h4>
+          <div class="sub">Base URL: ${d.base_url || "-"}<br/>등록일: ${d.created_at ? new Date(d.created_at + "Z").toLocaleString() : "-"}</div>
+        </div>
+        <div>
+          <h4>프로파일 편집 (branding / features / preferences)</h4>
+          <textarea id="profile-${d.id}">${JSON.stringify(d.profile || {}, null, 2)}</textarea>
+          <button class="primary" onclick="saveProfile('${d.id}')">저장 — 다음 하트비트에 적용</button>
+        </div>
+      </div>
+    </td></tr>`;
+}
+
+function render() {
+  $("rows").innerHTML = deployments.map(d => `
+    <tr class="clickable" onclick="toggleDetail('${d.id}')">
+      <td><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "online" : "offline"}
+          ${d.is_active ? "" : '<span class="badge inactive">license off</span>'}</td>
+      <td><b>${d.name}</b><div class="key">${d.id}</div></td>
+      <td>${d.client_name}</td>
+      <td>${d.version || "-"}</td>
+      <td>${(d.capabilities || []).join(", ") || "-"}</td>
+      <td>${d.last_heartbeat ? new Date(d.last_heartbeat + "Z").toLocaleString() : "-"}</td>
+      <td class="key">${d.license_key}</td>
+      <td onclick="event.stopPropagation()">
+        <button onclick="toggleActive('${d.id}', ${!d.is_active})">${d.is_active ? "라이선스 중지" : "라이선스 활성"}</button>
+        <button onclick="removeDeployment('${d.id}')">삭제</button>
+      </td>
+    </tr>
+    ${openDetail === d.id ? detailRow(d) : ""}`).join("")
+    || '<tr><td colspan="8" class="sub">등록된 배포가 없습니다.</td></tr>';
+}
+
+function toggleDetail(id) {
+  openDetail = openDetail === id ? null : id;
+  render();
+}
+
+async function saveProfile(id) {
+  let profile;
+  try { profile = JSON.parse($("profile-" + id).value); }
+  catch { alert("프로파일 JSON이 올바르지 않습니다."); return; }
+  await api("/api/v1/deployments/" + id, {method: "PATCH", body: JSON.stringify({profile})});
+  refresh();
+}
+
 async function refresh() {
   try {
     const data = await api("/api/v1/deployments");
     $("conn-status").textContent = "연결됨 — " + data.deployments.length + "개 배포";
-    $("rows").innerHTML = data.deployments.map(d => `
-      <tr>
-        <td><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "online" : "offline"}
-            ${d.is_active ? "" : '<span class="badge inactive">license off</span>'}</td>
-        <td><b>${d.name}</b><div class="key">${d.id}</div></td>
-        <td>${d.client_name}</td>
-        <td>${d.version || "-"}</td>
-        <td>${(d.capabilities || []).join(", ") || "-"}</td>
-        <td>${d.last_heartbeat ? new Date(d.last_heartbeat + "Z").toLocaleString() : "-"}</td>
-        <td class="key">${d.license_key}</td>
-        <td>
-          <button onclick="toggleActive('${d.id}', ${!d.is_active})">${d.is_active ? "라이선스 중지" : "라이선스 활성"}</button>
-          <button onclick="removeDeployment('${d.id}')">삭제</button>
-        </td>
-      </tr>`).join("") || '<tr><td colspan="8" class="sub">등록된 배포가 없습니다.</td></tr>';
+    deployments = data.deployments;
+    render();
   } catch (e) {
     $("conn-status").textContent = "오류: " + e.message;
   }
@@ -115,7 +176,8 @@ async function removeDeployment(id) {
   refresh();
 }
 if (token()) { $("token").value = token(); refresh(); }
-setInterval(() => { if (token()) refresh(); }, 15000);
+// pause auto-refresh while a detail panel is open (don't clobber profile edits)
+setInterval(() => { if (token() && !openDetail) refresh(); }, 15000);
 </script>
 </body>
 </html>"""

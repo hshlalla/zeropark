@@ -52,6 +52,7 @@ class Deployment(Base):
     profile = Column(String, nullable=True)                     # JSON: branding + features
     version = Column(String, nullable=True)                     # last reported product version
     capabilities = Column(String, nullable=True)                # JSON list, last reported
+    usage = Column(String, nullable=True)                       # JSON usage snapshot, last reported
     heartbeat_interval_s = Column(String, default="60")
     last_heartbeat = Column(DateTime, nullable=True)
     is_active = Column(String, default="true")                  # license switch
@@ -80,6 +81,7 @@ class HeartbeatRequest(BaseModel):
     license_key: str
     version: str | None = None
     capabilities: list[str] = Field(default_factory=list)
+    usage: dict[str, Any] | None = None
 
 
 # -------------------------------------------------------------------- auth
@@ -114,6 +116,7 @@ def _deployment_to_dict(d: Deployment) -> dict[str, Any]:
         "profile": json.loads(d.profile) if d.profile else {},
         "version": d.version,
         "capabilities": json.loads(d.capabilities) if d.capabilities else [],
+        "usage": json.loads(d.usage) if d.usage else None,
         "is_active": d.is_active == "true",
         "online": online,
         "last_heartbeat": d.last_heartbeat.isoformat() if d.last_heartbeat else None,
@@ -230,6 +233,8 @@ def create_app() -> FastAPI:
                 deployment.version = body.version
             if body.capabilities:
                 deployment.capabilities = json.dumps(body.capabilities)
+            if body.usage is not None:
+                deployment.usage = json.dumps(body.usage)
             await session.commit()
             profile = json.loads(deployment.profile) if deployment.profile else {}
         # Returning the profile lets a deployment pick up config changes on the

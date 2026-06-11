@@ -14,8 +14,8 @@ OSS를 설계 참고만 하여 기능을 네이티브로 재구현하는 단일 
 | `03-quality/` | 품질 | test-plan |
 | `04-operations/` | 운영 | deploy-guide, release-notes |
 | `05-governance/` | 거버넌스 | version-control, developer-guide, llm-usage-policy |
-| `oss-source-map.md` | OSS | 참고 OSS ↔ capability 매핑 |
-| `runbooks/` | 런북 | 로컬 실행, 스모크 결과 |
+| `oss-source-map.md` | OSS | 참고 OSS ↔ 네이티브 구현 매핑 (이전 완료 현황 포함) |
+| `runbooks/` | 런북 | 네이티브 로컬 실행, Control Plane 구동, 스모크 결과 |
 
 ## 먼저 읽을 문서
 
@@ -26,4 +26,6 @@ OSS를 설계 참고만 하여 기능을 네이티브로 재구현하는 단일 
 
 ## 핵심 원칙
 
-엔진을 API로 호출하거나 서비스로 띄우지 않는다. OSS는 참고만, 기능은 네이티브 구현. Dify/SearXNG 소스는 차용 금지.
+- 엔진을 API로 호출하거나 서비스로 띄우지 않는다. OSS는 참고만, 기능은 네이티브 구현. Dify/SearXNG 소스는 차용 금지.
+- 고객사 커스터마이징은 포크가 아니라 **배포 프로파일**(branding/features env)로 한다.
+- `services/control-plane`(플릿 관리: 라이선스·하트비트·사용량)은 자사 인프라 전용 — 고객 납품 이미지에 포함 금지.

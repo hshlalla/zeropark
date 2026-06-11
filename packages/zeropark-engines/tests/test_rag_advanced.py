@@ -1,24 +1,29 @@
+"""RAG collection-based access isolation.
+
+Documents are stored into logical collections; queries are restricted to the
+collection ids the caller may read (computed server-side by the gateway).
+"""
+
 import pytest
-import os
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 from zeropark_core.models import TaskRequest, Capability
 from zeropark_core.store import LocalArtifactStore
 from zeropark_engines.rag import RAGEngine
+
 
 class MockLLMClientForRAG:
     def __init__(self):
         # We need realistic 10-dimensional embeddings for Qdrant local test
         self.dim = 10
         self.call_count = 0
-        
+
     def create_embeddings(self, texts):
         res = []
         for _ in texts:
-            # dummy vector
             self.call_count += 1
             res.append([float(self.call_count % self.dim) for _ in range(self.dim)])
         return res
-        
+
     def chat_completion(self, messages, **kwargs):
         mock_response = MagicMock()
         mock_response.content = "This is a dummy RAG response."
@@ -26,73 +31,57 @@ class MockLLMClientForRAG:
         mock_response.completion_tokens = 20
         return mock_response
 
+
 @pytest.mark.asyncio
-async def test_rag_engine_rbac_isolation(tmp_path):
+async def test_rag_collection_isolation(tmp_path):
     store = LocalArtifactStore(base_dir=str(tmp_path))
     llm = MockLLMClientForRAG()
-    
-    # Init Engine (which initializes Qdrant in-memory)
     engine = RAGEngine(store=store, llm_client=llm)
-    
-    # Clear collection for clean test
-    engine.vector_store.client.delete_collection(engine.vector_store.collection_name)
-    engine.vector_store.client.create_collection(
-        collection_name=engine.vector_store.collection_name,
-        vectors_config=__import__("qdrant_client").models.VectorParams(size=llm.dim, distance=__import__("qdrant_client").models.Distance.COSINE)
+
+    # 1. Upload a confidential doc into the admin-only collection
+    await engine.execute(
+        TaskRequest(
+            prompt="Not used",
+            capability=Capability.RAG,
+            params={
+                "context_texts": ["The secret code is 42."],
+                "collection_id": "hr_confidential",
+                "allowed_collection_ids": [],
+            },
+        ),
+        "admin-upload-1",
     )
-    
-    # 1. Admin uploads highly confidential text
-    admin_req = TaskRequest(
-        prompt="Not used",
-        capability=Capability.RAG,
-        params={
-            "context_texts": ["The secret code is 42."],
-            "user_role": "admin"
-        }
+
+    # 2. Upload a public doc into the default collection
+    await engine.execute(
+        TaskRequest(
+            prompt="Not used",
+            capability=Capability.RAG,
+            params={
+                "context_texts": ["Zeropark is awesome."],
+                "collection_id": "default",
+                "allowed_collection_ids": [],
+            },
+        ),
+        "user-upload-1",
     )
-    # RAG engine currently triggers add_texts if context_texts is provided, then answers the prompt.
-    await engine.execute(admin_req, "admin-upload-1")
-    
-    # 2. Normal User uploads public text
-    user_req = TaskRequest(
-        prompt="Not used",
-        capability=Capability.RAG,
-        params={
-            "context_texts": ["Zeropark is awesome."],
-            "user_role": "user"
-        }
+
+    # 3. A caller allowed only ['default'] must never see hr_confidential docs
+    user_hits = engine.vector_store.similarity_search(
+        "secret code", allowed_collection_ids=["default"], k=5
     )
-    await engine.execute(user_req, "user-upload-1")
-    
-    # 3. Normal User tries to query the secret code
-    user_query = TaskRequest(
-        prompt="What is the secret code?",
-        capability=Capability.RAG,
-        params={
-            "user_role": "user"
-        }
+    assert user_hits, "expected at least the public doc"
+    for payload, _ in user_hits:
+        assert payload.get("collection_id") == "default", (
+            f"User retrieved an unauthorized document! Payload: {payload}"
+        )
+
+    # 4. A caller allowed both collections (admin) sees the confidential doc
+    admin_hits = engine.vector_store.similarity_search(
+        "secret code", allowed_collection_ids=["default", "hr_confidential"], k=5
     )
-    user_res = await engine.execute(user_query, "user-query-1")
-    
-    # Get top docs from the underlying search to assert
-    user_search_result = engine.vector_store.similarity_search("secret code", user_role="user")
-    
-    # The normal user should NOT be able to retrieve the admin document
-    # So all retrieved docs should have role == 'user'
-    for payload, score in user_search_result:
-        assert payload.get("role") == "user", f"User retrieved an unauthorized document! Payload: {payload}"
-        
-    # 4. Admin tries to query the secret code
-    admin_query = TaskRequest(
-        prompt="What is the secret code?",
-        capability=Capability.RAG,
-        params={
-            "user_role": "admin"
-        }
-    )
-    
-    admin_search_result = engine.vector_store.similarity_search("secret code", user_role="admin")
-    
-    # Admin should see both docs, including the secret one
-    roles_retrieved = set(payload.get("role") for payload, _ in admin_search_result)
-    assert "admin" in roles_retrieved, "Admin could not retrieve the admin document!"
+    collections_retrieved = {p.get("collection_id") for p, _ in admin_hits}
+    assert "hr_confidential" in collections_retrieved
+
+    # 5. An empty allowed list means no access at all
+    assert engine.vector_store.similarity_search("anything", allowed_collection_ids=[]) == []

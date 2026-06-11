@@ -13,7 +13,10 @@ from zeropark_engines.super_agent import SuperAgentEngine
 
 
 class FakeLLM(BaseLLMClient):
-    """First call requests a web_search tool call; second call answers."""
+    """Mimics the Planner→Researcher→Reporter call sequence:
+    1) planner (no tools)  2) researcher requests web_search
+    3) researcher writes notes (tool observation must be in history)
+    4) reporter writes the final answer."""
 
     def __init__(self):
         self.calls = 0
@@ -21,14 +24,18 @@ class FakeLLM(BaseLLMClient):
     def chat_completion(self, messages, model, temperature=0.7, max_tokens=None, tools=None, **kwargs):
         self.calls += 1
         if self.calls == 1:
+            return ChatResponse(content="1. Search the web. 2. Summarize.")
+        if self.calls == 2:
             return ChatResponse(
                 content="",
                 tool_calls=[
                     ToolCall(id="tc1", name="web_search", arguments=json.dumps({"query": "zeropark"}))
                 ],
             )
-        # the tool observation must be in the message history by now
-        assert any(m.role == "tool" for m in messages)
+        if self.calls == 3:
+            # the tool observation must be in the message history by now
+            assert any(m.role == "tool" for m in messages)
+            return ChatResponse(content="Notes: zeropark found at example.com")
         return ChatResponse(content="Final report based on search results.")
 
     def create_embeddings(self, texts, model="x"):
@@ -68,7 +75,7 @@ async def test_agent_uses_real_search_tool_and_streams_events(tmp_path, monkeypa
 
     assert result.status == TaskStatus.SUCCEEDED
     assert result.artifacts[0].inline == "Final report based on search results."
-    assert result.metrics["iterations"] == 2
+    assert result.metrics["iterations"] == 2  # researcher loop: tool call + notes
     assert result.metrics["model"] == "test-model"
     phases = [e.data.get("phase") for e in result.events]
     assert "action" in phases and "observation" in phases

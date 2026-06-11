@@ -104,8 +104,13 @@ class DeepResearchEngine(NativeEngine):
         return {"title": prompt[:80], "sections": [{"heading": "Findings", "queries": [prompt[:120]]}]}
 
     async def _search(self, query: str, limit: int) -> list[SourceRef]:
+        if self.search_engine is None:
+            return []  # degraded mode: sections are drafted with no sources
         task = TaskRequest(prompt=query, capability=Capability.SEARCH, params={"limit": limit})
-        result = await self.search_engine.cap_search(task, task_id="research_search")
+        try:
+            result = await self.search_engine.cap_search(task, task_id="research_search")
+        except Exception:
+            return []  # a search backend hiccup must not kill the whole report
         return result.sources
 
     async def _crawl(self, url: str) -> str:

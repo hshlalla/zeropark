@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Users, CheckCircle, AlertCircle } from 'lucide-react';
-import { getToken } from '../api';
+import { getToken, API_BASE } from '../api';
 
 interface UserData {
   id: string;
@@ -26,7 +26,7 @@ const Admin: React.FC = () => {
     setErrorMsg('');
     try {
       const token = getToken();
-      const res = await fetch('http://localhost:8000/api/v1/admin/users', {
+      const res = await fetch(`${API_BASE}/api/v1/admin/users`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -50,7 +50,7 @@ const Admin: React.FC = () => {
     setSuccessMsg('');
     try {
       const token = getToken();
-      const res = await fetch(`http://localhost:8000/api/v1/admin/users/${userId}/role`, {
+      const res = await fetch(`${API_BASE}/api/v1/admin/users/${userId}/role`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

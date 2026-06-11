@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Key, Save, CheckCircle, Palette, Globe } from 'lucide-react';
 
 const Settings: React.FC = () => {
@@ -122,7 +122,7 @@ const Settings: React.FC = () => {
               style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', color: 'var(--text-primary)' }}
             >
               <option value="en">English</option>
-              <option value="ko">Korean (한국어)</option>
+              <option value="ko">Korean (?쒓뎅??</option>
             </select>
           </div>
         </div>

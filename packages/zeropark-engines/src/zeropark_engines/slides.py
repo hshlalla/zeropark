@@ -7,6 +7,7 @@ this engine renders whatever outline it is given, so it works with zero config.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import io
@@ -14,6 +15,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +24,7 @@ from pptx.dml.color import RGBColor
 from pptx.util import Pt
 from zeropark_core.capabilities import Capability
 from zeropark_core import ArtifactStore
-from zeropark_core.models import Artifact, TaskRequest, TaskResult, TaskStatus
+from zeropark_core.models import Artifact, RunEvent, TaskRequest, TaskResult, TaskStatus
 from zeropark_core.llm import BaseLLMClient, ChatMessage
 
 from zeropark_engines.base import NativeEngine
@@ -189,7 +191,8 @@ class PptxSlidesEngine(NativeEngine):
                         pass
 
             notes = item.get("notes")
-            if notes and slide.has_notes_slide:
+            if notes:
+                # accessing notes_slide creates it when absent
                 slide.notes_slide.notes_text_frame.text = str(notes)
 
         bio = io.BytesIO()
@@ -241,7 +244,7 @@ class PptxSlidesEngine(NativeEngine):
                     pdf_uri = self.store.save(f"{task_id}.pdf", pdf_bytes)
                     artifacts.append(Artifact(
                         id=f"{task_id}_pdf",
-                        kind="document",
+                        kind="file",
                         title=f"{deck_title} (PDF)",
                         mime_type="application/pdf",
                         uri=pdf_uri,
@@ -321,3 +324,65 @@ class LLMSlidesEngine(NativeEngine):
         
         # 3. Delegate to renderer
         return await self.renderer.cap_slides(task, task_id)
+
+    async def stream(self, task: TaskRequest, *, task_id: str) -> AsyncIterator[RunEvent]:
+        yield RunEvent(
+            type="status",
+            task_id=task_id,
+            provider_id=self.id,
+            message="started",
+            data={"capability": task.capability.value},
+        )
+        yield RunEvent(
+            type="log",
+            task_id=task_id,
+            provider_id=self.id,
+            message="[Planner] Designing slide outline and selecting theme based on your request..."
+        )
+        
+        try:
+            # 1. Generate Theme & Outline via LLM
+            theme, outline = await self._generate_outline(task.prompt)
+            yield RunEvent(
+                type="log",
+                task_id=task_id,
+                provider_id=self.id,
+                message=f"[Planner] Generated {len(outline)} slides with theme '{theme}'."
+            )
+            
+            # 2. Inject outline and theme into task params
+            if not task.params:
+                task.params = {}
+            task.params["outline"] = outline
+            task.params["theme"] = theme
+            
+            yield RunEvent(
+                type="log",
+                task_id=task_id,
+                provider_id=self.id,
+                message="[Renderer] Generating PowerPoint (.pptx) and PDF files..."
+            )
+            
+            # 3. Delegate to renderer
+            result = await self.renderer.cap_slides(task, task_id)
+            
+            for artifact in result.artifacts:
+                yield RunEvent(
+                    type="artifact",
+                    task_id=task_id,
+                    provider_id=self.id,
+                    data={"artifact": artifact.model_dump(mode="json")},
+                )
+            yield RunEvent(
+                type="done",
+                task_id=task_id,
+                provider_id=self.id,
+                data={"status": result.status.value, "result": result.model_dump(mode="json")},
+            )
+        except Exception as exc:
+            yield RunEvent(
+                type="error",
+                task_id=task_id,
+                provider_id=self.id,
+                message=str(exc)
+            )

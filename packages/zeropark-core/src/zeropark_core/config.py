@@ -37,6 +37,12 @@ class BrandingConfig(BaseModel):
     logo_url: str | None = None
     primary_color: str = "#4F46E5"
     client_name: str | None = None  # e.g. "Samsung", "LG"
+    layout: dict = Field(default_factory=lambda: {
+        "type": "default",
+        "widgets": [
+            {"id": "chat", "position": "main"}
+        ]
+    })
 
 
 class ControlPlaneConfig(BaseModel):

@@ -64,7 +64,7 @@ class SuperAgentEngine(NativeEngine):
         search_engine: NativeEngine | None = None,
         crawl_engine: NativeEngine | None = None,
         model: str | None = None,
-        temperature: float = 0.0,
+        temperature: float = 1.0,
         max_iterations: int | None = None,
         mcp_manager: MCPClientManager | None = None,
     ) -> None:

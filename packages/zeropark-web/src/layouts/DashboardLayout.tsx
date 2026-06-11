@@ -1,14 +1,61 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, Settings, LogOut, Activity } from 'lucide-react';
-import { removeToken } from '../api';
+import { LayoutDashboard, BookOpen, Settings, LogOut, Activity, ScrollText } from 'lucide-react';
+import { removeToken, getToken, API_BASE } from '../api';
 
 const SIDEBAR_WIDTH = '260px';
 const HEADER_HEIGHT = '64px';
 
+interface ProfileData {
+  branding: {
+    product_name: string;
+    logo_url: string | null;
+    primary_color: string;
+    client_name: string | null;
+    layout: {
+      type: string;
+      widgets: any[];
+    };
+  };
+  environment: string;
+  capabilities: string[];
+  features: Record<string, boolean>;
+}
+
 const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        const res = await fetch(`${API_BASE}/api/v1/profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data: ProfileData = await res.json();
+          setProfile(data);
+          
+          // Apply dynamic CSS variable injection
+          if (data.branding.primary_color) {
+            document.documentElement.style.setProperty('--primary-color', data.branding.primary_color);
+            document.documentElement.style.setProperty('--primary-hover', `${data.branding.primary_color}dd`);
+          }
+          
+          localStorage.setItem('zp_profile', JSON.stringify(data));
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile", err);
+      }
+    };
+
+    fetchProfile();
+  }, []);
 
   const handleLogout = () => {
     removeToken();
@@ -18,6 +65,7 @@ const DashboardLayout: React.FC = () => {
   const navItems = [
     { label: 'Apps', path: '/dashboard', icon: <LayoutDashboard size={20} /> },
     { label: 'Knowledge (RAG)', path: '/dashboard/knowledge', icon: <BookOpen size={20} /> },
+    { label: 'Workflow Runs', path: '/dashboard/workflow-runs', icon: <ScrollText size={20} /> },
     { label: 'Admin Stats', path: '/dashboard/admin', icon: <Activity size={20} /> },
     { label: 'Settings', path: '/dashboard/settings', icon: <Settings size={20} /> },
   ];
@@ -45,9 +93,16 @@ const DashboardLayout: React.FC = () => {
         }}>
           <div style={{
             width: '32px', height: '32px', background: 'var(--primary-color)',
-            borderRadius: '8px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>Z</div>
-          Zeropark
+            borderRadius: '8px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden'
+          }}>
+            {profile?.branding.logo_url ? (
+              <img src={profile.branding.logo_url} alt="logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              profile?.branding.client_name?.[0] || profile?.branding.product_name?.[0] || 'Z'
+            )}
+          </div>
+          {profile?.branding.client_name ? `${profile.branding.client_name} AI` : (profile?.branding.product_name || 'Zeropark')}
         </div>
 
         {/* Navigation */}

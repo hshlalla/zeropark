@@ -23,6 +23,7 @@ from zeropark_engines.research import ResearchEngine
 from zeropark_engines.deep_research import DeepResearchEngine
 from zeropark_engines.browse import PlaywrightBrowseEngine
 from zeropark_engines.browser_agent import BrowserAgentEngine
+from zeropark_engines.chat import LLMChatEngine
 from zeropark_engines.super_agent import SuperAgentEngine
 from zeropark_engines.rag import RAGEngine
 from zeropark_core.llm import create_llm_client
@@ -59,7 +60,10 @@ def build_registry(
     if enabled("sheets"):
         registry.register(xlsx_renderer)
 
-    # Register Playwright Browse Engine if playwright is installed
+    # Playwright availability check. The plain capture engine is registered at
+    # the END so that, when an LLM is configured, BrowserAgentEngine becomes the
+    # default for `browse` (it handles prompt-only tasks; the capture engine
+    # requires a URL).
     playwright_available = False
     browse_engine = None
     if enabled("browse"):
@@ -67,7 +71,6 @@ def build_registry(
             import playwright  # noqa: F401
             playwright_available = True
             browse_engine = PlaywrightBrowseEngine(store=store)
-            registry.register(browse_engine)
         except ImportError:
             pass
 
@@ -110,6 +113,10 @@ def build_registry(
                 model_name=llm.get("model") or "gpt-4o-mini",
             ))
 
+        if enabled("chat"):
+            registry.register(
+                LLMChatEngine(llm_client=llm_client, model=llm.get("model") or "gpt-4o-mini")
+            )
         if enabled("slides"):
             registry.register(LLMSlidesEngine(llm_client=llm_client, renderer=pptx_renderer))
         if enabled("sheets"):
@@ -125,7 +132,12 @@ def build_registry(
                 )
             )
         if enabled("rag"):
-            registry.register(RAGEngine(store=store, llm_client=llm_client))
+            try:
+                registry.register(RAGEngine(store=store, llm_client=llm_client))
+            except Exception as exc:
+                # e.g. Qdrant client unavailable — one engine must never take
+                # down the whole deployment's registry.
+                print(f"Warning: RAG engine not registered: {exc}")
         if enabled("browse") and playwright_available:
             registry.register(
                 BrowserAgentEngine(
@@ -134,5 +146,10 @@ def build_registry(
                     model=llm.get("model") or "gpt-4o",
                 )
             )
+
+    # Plain page-capture browse engine: registered last so the agent (above)
+    # wins default selection when present; still pinnable via provider_id.
+    if browse_engine is not None:
+        registry.register(browse_engine)
 
     return registry

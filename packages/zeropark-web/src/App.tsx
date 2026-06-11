@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import AppViewer from './pages/AppViewer';
 import Knowledge from './pages/Knowledge';
 import WorkflowEditor from './pages/WorkflowEditor';
+import WorkflowRuns from './pages/WorkflowRuns';
 import Admin from './pages/Admin';
 import Settings from './pages/Settings';
 
@@ -29,7 +30,7 @@ const OAuthCallback: React.FC = () => {
 };
 
 // Private Route wrapper
-const PrivateRoute = ({ children }: { children: JSX.Element }) => {
+const PrivateRoute = ({ children }: { children: React.ReactElement }) => {
   return isAuthenticated() ? children : <Navigate to="/login" replace />;
 };
 
@@ -55,6 +56,7 @@ function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="app/:appId" element={<AppViewer />} />
           <Route path="workflow/:appId" element={<WorkflowEditor />} />
+          <Route path="workflow-runs" element={<WorkflowRuns />} />
         </Route>
       </Routes>
     </BrowserRouter>

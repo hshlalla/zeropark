@@ -38,7 +38,7 @@ async def test_themed_deck_renders_valid_pptx(tmp_path):
     result = await engine.cap_slides(task, "t1")
     deck_path = result.artifacts[0].uri
     prs = Presentation(deck_path)
-    assert len(prs.slides.__iter__().__self__._sldIdLst) == 3  # title + 2 content
+    assert len(prs.slides) == 3  # title + 2 content
     # speaker notes survived
     notes = prs.slides[1].notes_slide.notes_text_frame.text
     assert notes == "say hello"

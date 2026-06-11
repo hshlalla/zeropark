@@ -55,6 +55,40 @@ class ChatMessage(Base):
     
     session = relationship("ChatSession", back_populates="messages")
 
+class App(Base):
+    """A configured agent app — created/published by admins, used by everyone.
+
+    This is the server-side registry that replaces per-browser localStorage:
+    an admin builds an agent (name + mode + optional system prompt/params),
+    publishes it, and every user in the deployment sees and uses it.
+    """
+    __tablename__ = "apps"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    mode = Column(String, nullable=False)            # router mode (chat, slides, ...)
+    system_prompt = Column(String, nullable=True)    # optional persona/instructions
+    params = Column(String, nullable=True)           # JSON: default task params
+    published = Column(Boolean, default=True)        # only published apps show to users
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class RagCollection(Base):
+    """A logical knowledge collection with role-based read access.
+
+    Vectors live in one physical Qdrant collection; every chunk is tagged with
+    collection_id and queries filter on the collections the caller may read.
+    """
+    __tablename__ = "rag_collections"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    # JSON list of roles allowed to READ, e.g. ["user","admin"] or ["admin"]
+    allowed_roles = Column(String, default='["user", "admin"]')
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Job(Base):
     """A long-running agent task, persisted so it survives reconnects/restarts."""
     __tablename__ = "jobs"

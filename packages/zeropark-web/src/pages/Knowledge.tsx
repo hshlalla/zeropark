@@ -1,6 +1,13 @@
-import React, { useState, useRef } from 'react';
-import { UploadCloud, FileText, CheckCircle, AlertCircle } from 'lucide-react';
-import { getToken } from '../api';
+﻿import React, { useState, useRef, useEffect } from 'react';
+import { UploadCloud, FileText, CheckCircle, AlertCircle, FolderLock, Plus } from 'lucide-react';
+import { getToken, API_BASE, authFetch, isAdmin } from '../api';
+
+interface RagCollection {
+  id: string;
+  name: string;
+  description: string | null;
+  allowed_roles: string[];
+}
 
 const Knowledge: React.FC = () => {
   const [dragActive, setDragActive] = useState(false);
@@ -8,8 +15,50 @@ const Knowledge: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
-  
+
+  // Collections: where the upload goes + who can read it
+  const [collections, setCollections] = useState<RagCollection[]>([]);
+  const [selectedCollection, setSelectedCollection] = useState('default');
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [newCollectionAdminOnly, setNewCollectionAdminOnly] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchCollections = async () => {
+    try {
+      const res = await authFetch('/api/v1/rag/collections');
+      if (res.ok) {
+        const data = await res.json();
+        setCollections(data.collections);
+        if (data.collections.length > 0 && !data.collections.some((c: RagCollection) => c.id === selectedCollection)) {
+          setSelectedCollection(data.collections[0].id);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { fetchCollections(); }, []);
+
+  const handleCreateCollection = async () => {
+    if (!newCollectionName.trim()) return;
+    const res = await authFetch('/api/v1/rag/collections', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: newCollectionName,
+        allowed_roles: newCollectionAdminOnly ? ['admin'] : ['user', 'admin'],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error?.message || err?.detail || '컬렉션 생성에 실패했습니다.');
+      return;
+    }
+    setNewCollectionName('');
+    setNewCollectionAdminOnly(false);
+    await fetchCollections();
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -56,7 +105,7 @@ const Knowledge: React.FC = () => {
         formData.append('files', file);
       });
 
-      const res = await fetch('http://localhost:8000/api/v1/rag/upload', {
+      const res = await fetch(`${API_BASE}/api/v1/rag/upload?collection_id=${encodeURIComponent(selectedCollection)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -87,6 +136,53 @@ const Knowledge: React.FC = () => {
       <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
         Upload documents (txt, pdf, etc.) to enhance your agents with custom knowledge retrieval capabilities (RAG).
       </p>
+
+      {/* Collection selector: where uploads go + who can read them */}
+      <div className="glass-panel" style={{ padding: '1.25rem', borderRadius: 'var(--radius-lg)', marginBottom: '1.5rem' }}>
+        <h3 style={{ fontWeight: '600', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <FolderLock size={18} style={{ color: 'var(--primary-color)' }} /> 업로드 대상 컬렉션
+        </h3>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+          {collections.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedCollection(c.id)}
+              style={{
+                padding: '0.5rem 0.9rem', borderRadius: 'var(--radius-md)', fontSize: '0.85rem',
+                border: `1px solid ${selectedCollection === c.id ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                backgroundColor: selectedCollection === c.id ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-color)',
+                color: selectedCollection === c.id ? 'var(--primary-color)' : 'var(--text-secondary)',
+                fontWeight: selectedCollection === c.id ? 600 : 500, cursor: 'pointer'
+              }}
+              title={c.description || ''}
+            >
+              {c.name}
+              <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', opacity: 0.8 }}>
+                {c.allowed_roles.includes('user') ? '전체 공개' : '관리자 전용'}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {isAdmin() && (
+          <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={newCollectionName}
+              onChange={(e) => setNewCollectionName(e.target.value)}
+              placeholder="새 컬렉션 이름 (예: 인사규정)"
+              style={{ flex: '1 1 200px', padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-color)' }}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <input type="checkbox" checked={newCollectionAdminOnly} onChange={(e) => setNewCollectionAdminOnly(e.target.checked)} />
+              관리자 전용
+            </label>
+            <button className="btn-secondary" onClick={handleCreateCollection} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <Plus size={15} /> 컬렉션 추가
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Drag & Drop Zone */}
       <div 
