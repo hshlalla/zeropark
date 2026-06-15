@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -28,6 +28,46 @@ from zeropark_gateway.auth import get_current_user, get_current_admin_user
 knowledge_router = APIRouter(prefix="/api/v1/rag/collections", tags=["rag"])
 
 DEFAULT_COLLECTION_ID = "default"
+
+
+def extract_text(filename: str, content: bytes) -> str:
+    """Best-effort text extraction by file type (PDF/DOCX/plain text)."""
+    lower = (filename or "").lower()
+    if lower.endswith(".pdf"):
+        import io
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    if lower.endswith(".docx"):
+        import io
+        from docx import Document as DocxDocument
+
+        document = DocxDocument(io.BytesIO(content))
+        return "\n".join(p.text for p in document.paragraphs if p.text)
+    return content.decode("utf-8", errors="ignore")
+
+
+def vacuum_collection_vectors(registry, collection_id: str) -> None:
+    """Remove a deleted collection's vectors from Qdrant so they don't linger
+    as unreachable orphans. Best effort — the permission filter already makes
+    them invisible even if this fails."""
+    try:
+        from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue
+
+        rag = next((p for p in registry.all() if getattr(p, "vector_store", None)), None)
+        if rag is None or rag.vector_store.dim is None:
+            return  # store never initialized — nothing to clean
+        rag.vector_store.client.delete(
+            collection_name=rag.vector_store.collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="collection_id", match=MatchValue(value=collection_id))]
+                )
+            ),
+        )
+    except Exception as exc:
+        print(f"Warning: vector vacuum for collection '{collection_id}' failed: {exc}")
 
 
 class CollectionCreate(BaseModel):
@@ -114,7 +154,7 @@ async def create_collection(
 
 @knowledge_router.delete("/{collection_id}")
 async def delete_collection(
-    collection_id: str, admin: dict = Depends(get_current_admin_user)
+    request: Request, collection_id: str, admin: dict = Depends(get_current_admin_user)
 ) -> dict[str, str]:
     if collection_id == DEFAULT_COLLECTION_ID:
         raise HTTPException(status_code=400, detail="The default collection cannot be deleted.")
@@ -124,6 +164,6 @@ async def delete_collection(
             raise HTTPException(status_code=404, detail="Collection not found")
         await session.delete(collection)
         await session.commit()
-    # Note: vectors tagged with this collection_id become unreachable (filtered
-    # out for everyone). A vacuum job can purge them from Qdrant later.
+    # purge the collection's vectors from Qdrant immediately
+    vacuum_collection_vectors(request.app.state.registry, collection_id)
     return {"status": "deleted"}

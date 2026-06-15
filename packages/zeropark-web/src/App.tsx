@@ -41,6 +41,16 @@ function App() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
+
+        {/* Standalone AppViewer for normal users (no admin sidebar) */}
+        <Route 
+          path="/app/:appId" 
+          element={
+            <PrivateRoute>
+              <AppViewer />
+            </PrivateRoute>
+          } 
+        />
         
         <Route 
           path="/dashboard" 

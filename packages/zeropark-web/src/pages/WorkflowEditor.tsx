@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -11,8 +11,8 @@ import {
 } from '@xyflow/react';
 import type { Connection, Edge, Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeft, Save, Play, Settings, Trash2, CheckCircle, XCircle, MinusCircle } from 'lucide-react';
-import { API_BASE } from '../api';
+import { ArrowLeft, Save, Play, Settings, Trash2, CheckCircle, XCircle, MinusCircle, FolderOpen, Upload, Download, Rocket } from 'lucide-react';
+import { API_BASE, authFetch, isAdmin } from '../api';
 
 interface NodeRun {
   node_id: string;
@@ -37,7 +37,7 @@ const initialNodes: Node[] = [
 const initialEdges: Edge[] = [];
 
 const WorkflowEditor: React.FC = () => {
-  // const { appId } = useParams<{ appId: string }>();
+  const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -48,6 +48,124 @@ const WorkflowEditor: React.FC = () => {
   const [executionLog, setExecutionLog] = useState<string | null>(null);
   const [nodeRuns, setNodeRuns] = useState<NodeRun[] | null>(null);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
+
+  // Saved workflows (server registry)
+  const [savedList, setSavedList] = useState<{ id: string; name: string }[]>([]);
+  const [showLoadPanel, setShowLoadPanel] = useState(false);
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null);
+  const [workflowName, setWorkflowName] = useState('Untitled Workflow');
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+
+  const fetchSaved = async () => {
+    const res = await authFetch('/api/v1/workflow/saved');
+    if (res.ok) setSavedList((await res.json()).workflows);
+  };
+
+  const handleSaveWorkflow = async () => {
+    const name = window.prompt('워크플로 이름', workflowName);
+    if (!name) return;
+    setWorkflowName(name);
+    const definition = { nodes, edges };
+    const res = currentWorkflowId
+      ? await authFetch(`/api/v1/workflow/saved/${currentWorkflowId}`, { method: 'PUT', body: JSON.stringify({ name, definition }) })
+      : await authFetch('/api/v1/workflow/saved', { method: 'POST', body: JSON.stringify({ name, definition }) });
+    if (res.ok) {
+      const data = await res.json();
+      setCurrentWorkflowId(data.id || currentWorkflowId);
+      alert('저장되었습니다.');
+    } else {
+      alert('저장에 실패했습니다.');
+    }
+  };
+
+  // Publish the current (saved) workflow as an App so users can run it from
+  // the dashboard without opening the editor.
+  const handlePublishAsApp = async () => {
+    let wfId = currentWorkflowId;
+    if (!wfId) {
+      // must be saved first so the App can point at a stable definition
+      const name = window.prompt('발행하려면 먼저 저장합니다. 워크플로 이름:', workflowName);
+      if (!name) return;
+      setWorkflowName(name);
+      const saveRes = await authFetch('/api/v1/workflow/saved', {
+        method: 'POST', body: JSON.stringify({ name, definition: { nodes, edges } })
+      });
+      if (!saveRes.ok) { alert('저장에 실패했습니다.'); return; }
+      wfId = (await saveRes.json()).id;
+      setCurrentWorkflowId(wfId);
+    }
+    const appName = window.prompt('앱 이름', workflowName) || workflowName;
+    const res = await authFetch('/api/v1/apps', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: appName,
+        mode: 'workflow',
+        description: '발행된 워크플로 앱',
+        params: { workflow_id: wfId },
+        published: true,
+      }),
+    });
+    if (res.ok) alert(`'${appName}' 앱으로 발행되었습니다. 대시보드에서 실행할 수 있습니다.`);
+    else alert('발행에 실패했습니다 (admin 권한 필요).');
+  };
+
+  const handleLoadWorkflow = async (id: string) => {
+    const res = await authFetch(`/api/v1/workflow/saved/${id}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    setNodes(data.definition.nodes || []);
+    setEdges(data.definition.edges || []);
+    setCurrentWorkflowId(data.id);
+    setWorkflowName(data.name);
+    setNodeRuns(null);
+    setShowLoadPanel(false);
+  };
+
+  // When opened from a published workflow App (/dashboard/workflow/:appId),
+  // resolve the app's workflow_id and load that saved definition.
+  useEffect(() => {
+    if (!appId) return;
+    (async () => {
+      const res = await authFetch(`/api/v1/apps/${appId}`);
+      if (!res.ok) return;
+      const app = await res.json();
+      const wfId = app.params?.workflow_id;
+      if (wfId) handleLoadWorkflow(wfId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId]);
+
+  const handleExport = () => {
+    const blob = new Blob(
+      [JSON.stringify({ name: workflowName, definition: { nodes, edges } }, null, 2)],
+      { type: 'application/json' }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${workflowName.replace(/\s+/g, '_')}.workflow.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const definition = parsed.definition || parsed; // accept bare {nodes,edges} too
+      if (!definition.nodes) throw new Error('nodes 없음');
+      setNodes(definition.nodes);
+      setEdges(definition.edges || []);
+      setWorkflowName(parsed.name || file.name.replace(/\.workflow\.json$/, ''));
+      setCurrentWorkflowId(null); // imported = new document until saved
+      setNodeRuns(null);
+    } catch (err: any) {
+      alert(`가져오기 실패: ${err.message}`);
+    } finally {
+      e.target.value = '';
+    }
+  };
 
   // When node selection changes
   const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => {
@@ -185,11 +303,67 @@ const WorkflowEditor: React.FC = () => {
           position: 'absolute', top: '1rem', right: '1rem', zIndex: 10,
           display: 'flex', gap: '0.5rem'
         }}>
-          <button className="btn-secondary" style={{ padding: '0.5rem 1rem' }}><Save size={16} style={{marginRight:'0.5rem'}}/> Save</button>
+          <button className="btn-secondary" onClick={handleSaveWorkflow} style={{ padding: '0.5rem 1rem' }}>
+            <Save size={16} style={{marginRight:'0.5rem'}}/> Save
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={async () => { await fetchSaved(); setShowLoadPanel(v => !v); }}
+            style={{ padding: '0.5rem 1rem' }}
+          >
+            <FolderOpen size={16} style={{marginRight:'0.5rem'}}/> Load
+          </button>
+          <button className="btn-secondary" onClick={handleExport} title="JSON으로 내보내기" style={{ padding: '0.5rem 0.8rem' }}>
+            <Download size={16} />
+          </button>
+          <button className="btn-secondary" onClick={() => importInputRef.current?.click()} title="JSON 가져오기" style={{ padding: '0.5rem 0.8rem' }}>
+            <Upload size={16} />
+          </button>
+          <input ref={importInputRef} type="file" accept=".json" onChange={handleImportFile} style={{ display: 'none' }} />
+          {isAdmin() && (
+            <button className="btn-secondary" onClick={handlePublishAsApp} title="앱으로 발행 (대시보드에서 실행)" style={{ padding: '0.5rem 1rem' }}>
+              <Rocket size={16} style={{marginRight:'0.5rem'}}/> Publish
+            </button>
+          )}
           <button className="btn-primary" onClick={handleRunWorkflow} disabled={isExecuting} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center' }}>
             <Play size={16} style={{marginRight:'0.5rem'}}/> {isExecuting ? 'Running...' : 'Run'}
           </button>
         </div>
+
+        {/* saved workflow list */}
+        {showLoadPanel && (
+          <div style={{
+            position: 'absolute', top: '4rem', right: '1rem', zIndex: 20,
+            width: '300px', maxHeight: '320px', overflowY: 'auto',
+            backgroundColor: 'var(--surface-color)', border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)', padding: '0.75rem'
+          }}>
+            <h4 style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.5rem' }}>저장된 워크플로</h4>
+            {savedList.length === 0 && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>저장된 워크플로가 없습니다.</span>}
+            {savedList.map(w => (
+              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <button
+                  onClick={() => handleLoadWorkflow(w.id)}
+                  style={{ flex: 1, textAlign: 'left', padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: 'var(--text-primary)' }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-color)'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  {w.name}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm(`'${w.name}' 삭제할까요?`)) return;
+                    await authFetch(`/api/v1/workflow/saved/${w.id}`, { method: 'DELETE' });
+                    fetchSaved();
+                  }}
+                  style={{ color: '#ef4444', padding: '0.3rem' }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         <ReactFlow
           nodes={nodes}

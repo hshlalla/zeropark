@@ -24,6 +24,7 @@ from zeropark_engines.deep_research import DeepResearchEngine
 from zeropark_engines.browse import PlaywrightBrowseEngine
 from zeropark_engines.browser_agent import BrowserAgentEngine
 from zeropark_engines.chat import LLMChatEngine
+from zeropark_engines.media import ImageEngine, PageEngine, PodcastEngine
 from zeropark_engines.super_agent import SuperAgentEngine
 from zeropark_engines.rag import RAGEngine
 from zeropark_core.llm import create_llm_client
@@ -113,9 +114,24 @@ def build_registry(
                 model_name=llm.get("model") or "gpt-4o-mini",
             ))
 
+        # RAG first: chat shares its vector store for knowledge-grounded replies
+        rag_engine = None
+        if enabled("rag"):
+            try:
+                rag_engine = RAGEngine(store=store, llm_client=llm_client)
+                registry.register(rag_engine)
+            except Exception as exc:
+                # e.g. Qdrant client unavailable — one engine must never take
+                # down the whole deployment's registry.
+                print(f"Warning: RAG engine not registered: {exc}")
+
         if enabled("chat"):
             registry.register(
-                LLMChatEngine(llm_client=llm_client, model=llm.get("model") or "gpt-4o-mini")
+                LLMChatEngine(
+                    llm_client=llm_client,
+                    model=llm.get("model") or "gpt-4o-mini",
+                    vector_store=rag_engine.vector_store if rag_engine else None,
+                )
             )
         if enabled("slides"):
             registry.register(LLMSlidesEngine(llm_client=llm_client, renderer=pptx_renderer))
@@ -131,13 +147,18 @@ def build_registry(
                     model=llm.get("model"),
                 )
             )
-        if enabled("rag"):
-            try:
-                registry.register(RAGEngine(store=store, llm_client=llm_client))
-            except Exception as exc:
-                # e.g. Qdrant client unavailable — one engine must never take
-                # down the whole deployment's registry.
-                print(f"Warning: RAG engine not registered: {exc}")
+        # media engines: PAGE works with any provider; IMAGE/AUDIO need the
+        # OpenAI SDK (engine checks at call time and fails the task cleanly)
+        if enabled("page"):
+            registry.register(
+                PageEngine(store=store, llm_client=llm_client, model=llm.get("model") or "gpt-4o-mini")
+            )
+        if enabled("image") and getattr(llm_client, "client", None) is not None:
+            registry.register(ImageEngine(store=store, llm_client=llm_client))
+        if enabled("audio") and getattr(llm_client, "client", None) is not None:
+            registry.register(
+                PodcastEngine(store=store, llm_client=llm_client, model=llm.get("model") or "gpt-4o-mini")
+            )
         if enabled("browse") and playwright_available:
             registry.register(
                 BrowserAgentEngine(

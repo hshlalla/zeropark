@@ -29,6 +29,7 @@ from zeropark_core.errors import NoProviderForCapability
 from zeropark_core.models_db import Job
 
 from zeropark_gateway.auth import get_current_user
+from zeropark_gateway.knowledge import ensure_default_collection, readable_collection_ids
 
 jobs_router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
@@ -73,7 +74,14 @@ class JobManager:
                 setattr(job, key, value)
             await session.commit()
 
-    async def start(self, app_router, capability: Capability, job_id: str, body: JobCreateRequest) -> None:
+    async def start(
+        self,
+        app_router,
+        capability: Capability,
+        job_id: str,
+        body: JobCreateRequest,
+        usage_tracker: Any | None = None,
+    ) -> None:
         live = _LiveJob()
         self.live[job_id] = live
 
@@ -81,6 +89,7 @@ class JobManager:
             await self._set_status(job_id, status="running")
             terminal_status = "failed"
             result_json: str | None = None
+            result_payload: dict[str, Any] | None = None
             error: str | None = None
             try:
                 provider = app_router.select(capability, prefer=body.provider_id)
@@ -94,7 +103,8 @@ class JobManager:
                     payload = event.model_dump(mode="json")
                     live.publish(payload)
                     if event.type == "done":
-                        result_json = json.dumps(payload.get("data", {}).get("result"), default=str)
+                        result_payload = payload.get("data", {}).get("result")
+                        result_json = json.dumps(result_payload, default=str)
                         status_value = payload.get("data", {}).get("status", "succeeded")
                         terminal_status = status_value
                     elif event.type == "error":
@@ -112,6 +122,15 @@ class JobManager:
                     result=result_json,
                     error=error,
                 )
+                # background jobs count toward usage metering just like
+                # synchronous tasks (billing parity)
+                if usage_tracker is not None:
+                    try:
+                        usage_tracker.record(
+                            capability.value, result_payload, failed=error is not None
+                        )
+                    except Exception:
+                        pass
                 live.finish()
                 self.tasks.pop(job_id, None)
 
@@ -156,6 +175,16 @@ async def create_job(
     except NoProviderForCapability as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    # RAG jobs get the caller's readable collections baked in at submit time
+    # (the background runner has no request context to compute them later)
+    if plan.primary == Capability.RAG:
+        await ensure_default_collection()
+        allowed = await readable_collection_ids(current_user.get("role", "user"))
+        pinned = body.params.get("collection_ids") or body.params.get("allowed_collection_ids")
+        if pinned:
+            allowed = [c for c in pinned if c in allowed]
+        body.params["allowed_collection_ids"] = allowed
+
     job_id = uuid.uuid4().hex
     async with AsyncSessionLocal() as session:
         session.add(
@@ -170,7 +199,10 @@ async def create_job(
         )
         await session.commit()
 
-    await _manager(request).start(router, plan.primary, job_id, body)
+    await _manager(request).start(
+        router, plan.primary, job_id, body,
+        usage_tracker=getattr(request.app.state, "usage", None),
+    )
     return {"job_id": job_id, "status": "pending"}
 
 

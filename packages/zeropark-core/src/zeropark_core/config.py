@@ -19,6 +19,15 @@ class LLMConfig(BaseModel):
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+    # comma-separated list of models admins may pick per agent
+    # (e.g. ZEROPARK_LLM__MODELS=gpt-4o,gpt-4o-mini,gpt-5-nano)
+    models: str | None = None
+
+    def model_choices(self) -> list[str]:
+        choices = [m.strip() for m in (self.models or "").split(",") if m.strip()]
+        if self.model and self.model not in choices:
+            choices.insert(0, self.model)
+        return choices
 
 
 class SearchConfig(BaseModel):

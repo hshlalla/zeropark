@@ -231,6 +231,13 @@ def create_app() -> FastAPI:
     
     setup_exception_handlers(app)
     
+    # generated artifacts (pages, podcasts, decks) are served statically so the
+    # UI can link to them: /artifacts/<filename>
+    from fastapi.staticfiles import StaticFiles
+    _settings_for_static = ZeroparkSettings()
+    os.makedirs(_settings_for_static.output_dir, exist_ok=True)
+    app.mount("/artifacts", StaticFiles(directory=_settings_for_static.output_dir), name="artifacts")
+
     registry, router, settings = build_state()
     app.state.registry = registry
     app.state.router = router
@@ -247,8 +254,28 @@ def create_app() -> FastAPI:
     app.include_router(dataset_router)
     app.include_router(observability_router)
 
+    from zeropark_gateway.conversations import conversations_router
+    app.include_router(conversations_router)
+    from zeropark_gateway.conversations import feedback_admin_router
+    app.include_router(feedback_admin_router)
+
     def _router(request: Request) -> Router:
         return request.app.state.router
+
+    async def _secure_rag_params(params: dict[str, Any], role: str) -> dict[str, Any]:
+        """Server-side RAG access control for EVERY task path.
+
+        The caller's readable collections come from the DB; if the app/task
+        pinned specific collections (params.collection_ids), they are
+        intersected with that set — a client can narrow, never widen, access.
+        """
+        await ensure_default_collection()
+        allowed = await readable_collection_ids(role)
+        pinned = params.get("collection_ids") or params.get("allowed_collection_ids")
+        if pinned:
+            allowed = [c for c in pinned if c in allowed]
+        params["allowed_collection_ids"] = allowed
+        return params
 
     async def _run_capability(
         request: Request,
@@ -257,7 +284,13 @@ def create_app() -> FastAPI:
         params: dict[str, Any],
         provider_id: str | None,
         tenant: str | None = None,
+        user_role: str | None = None,
     ) -> dict[str, Any]:
+        needs_rag_clipping = capability == Capability.RAG or (
+            capability == Capability.CHAT and params.get("collection_ids")
+        )
+        if needs_rag_clipping and user_role is not None:
+            params = await _secure_rag_params(params, user_role)
         # SSRF guard: any user-supplied URL must resolve to a public address.
         # (Engines re-validate at fetch time; validating here returns a clean 400
         # instead of a failed task.) Prompt-injection defense is handled by tool
@@ -319,6 +352,8 @@ def create_app() -> FastAPI:
             "environment": settings.environment,
             "capabilities": sorted(c.value for c in registry.capabilities()),
             "features": settings.features,
+            # models admins may assign per agent (never includes the api key)
+            "models": settings.llm.model_choices(),
         }
 
     @app.get("/api/v1/usage")
@@ -373,11 +408,29 @@ def create_app() -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=400, detail=f"Unknown mode: {body.mode}") from exc
             
+        task_params = dict(body.params or {})
+        session_id = body.session_id or task_params.get("session_id")
+        if session_id:
+            from zeropark_gateway.conversations import apply_session_context
+            task_params = await apply_session_context(
+                task_params, session_id, current_user.get("user_id")
+            )
+
         result = await _run_capability(
-            request, plan.primary, body.prompt, body.params, body.provider_id, body.tenant
+            request, plan.primary, body.prompt, task_params, body.provider_id, body.tenant,
+            user_role=current_user.get("role", "user"),
         )
         result["mode"] = body.mode
         result["initiated_by"] = current_user.get("user_id")
+
+        if session_id:
+            from zeropark_gateway.conversations import append_turn
+            inline = next(
+                (a.get("inline") for a in result.get("artifacts", [])
+                 if isinstance(a.get("inline"), str) and a.get("inline")),
+                "",
+            )
+            await append_turn(session_id, body.prompt, inline)
         return result
 
     @app.post("/api/v1/tasks/stream")
@@ -402,10 +455,28 @@ def create_app() -> FastAPI:
         except NoProviderForCapability as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+        task_params = dict(body.params or {})
+        if plan.primary == Capability.RAG or (
+            plan.primary == Capability.CHAT and task_params.get("collection_ids")
+        ):
+            task_params = await _secure_rag_params(
+                task_params, current_user.get("role", "user")
+            )
+
+        session_id = body.session_id or task_params.get("session_id")
+        if session_id:
+            from zeropark_gateway.conversations import apply_session_context
+            try:
+                task_params = await apply_session_context(
+                    task_params, session_id, current_user.get("user_id")
+                )
+            except Exception:
+                pass
+
         task = TaskRequest(
             prompt=body.prompt,
             capability=plan.primary,
-            params=body.params,
+            params=task_params,
             provider_id=body.provider_id,
             tenant=body.tenant,
         )
@@ -415,13 +486,24 @@ def create_app() -> FastAPI:
             def sse(payload: dict[str, Any]) -> str:
                 return f"data: {json.dumps(payload, default=str)}\n\n"
 
+            ai_content = ""
             try:
                 async for event in provider.stream(task, task_id=task_id):
+                    if event.type == "token":
+                        ai_content += event.message or ""
+                    elif event.type == "artifact" and not ai_content:
+                        art = event.data.get("artifact", {})
+                        if art.get("inline"):
+                            ai_content = art["inline"]
                     yield sse(event.model_dump(mode="json"))
             except (ProviderNotConfigured, ZeroparkError) as exc:
                 yield sse({"type": "error", "task_id": task_id, "message": str(exc)})
             except httpx.HTTPError as exc:
                 yield sse({"type": "error", "task_id": task_id, "message": f"Engine fetch error: {exc}"})
+            finally:
+                if session_id and ai_content:
+                    from zeropark_gateway.conversations import append_turn
+                    await append_turn(session_id, body.prompt, ai_content)
 
         return StreamingResponse(
             event_source(),
@@ -446,11 +528,22 @@ def create_app() -> FastAPI:
                 detail=f"You cannot upload into collection '{collection_id}'.",
             )
 
+        from zeropark_gateway.knowledge import extract_text
+
         texts = []
         for file in files:
             content = await file.read()
-            # Basic text extraction (assuming .txt files for now)
-            texts.append(content.decode("utf-8", errors="ignore"))
+            try:
+                text = extract_text(file.filename or "", content)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{file.filename}' 텍스트 추출 실패: {exc}",
+                ) from exc
+            if text.strip():
+                texts.append(text)
+        if not texts:
+            raise HTTPException(status_code=400, detail="No extractable text in the uploaded files.")
 
         params = {
             "context_texts": texts,

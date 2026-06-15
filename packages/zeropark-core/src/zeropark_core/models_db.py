@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Integer
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -19,6 +19,9 @@ class User(Base):
     provider_id = Column(String, nullable=True, index=True) # e.g., google user ID
     role = Column(String, default="user")  # 'admin', 'user'
     is_active = Column(Boolean, default=True)
+    # bumped to invalidate all outstanding tokens for this user (logout-all,
+    # role change, deactivation). Tokens carry the version they were minted at.
+    token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     workspaces = relationship("Workspace", back_populates="owner")
@@ -38,10 +41,18 @@ class Workspace(Base):
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id = Column(String, primary_key=True, default=generate_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=True)
+    # conversation ownership/scoping for the agent chat surface
+    user_id = Column(String, nullable=True, index=True)
+    app_id = Column(String, nullable=True, index=True)
     title = Column(String, nullable=True)
+    # rolling LLM summary of turns older than the recent window (long-term memory)
+    summary = Column(String, nullable=True)
+    # JSON dict of conversation variables collected from the user (dify-style)
+    variables = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
     workspace = relationship("Workspace", back_populates="chat_sessions")
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
 
@@ -87,6 +98,33 @@ class RagCollection(Base):
     # JSON list of roles allowed to READ, e.g. ["user","admin"] or ["admin"]
     allowed_roles = Column(String, default='["user", "admin"]')
     created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class SavedWorkflow(Base):
+    """A workflow definition saved from the visual editor (React Flow JSON).
+
+    Stored as one JSON document — import/export is the same payload, so a
+    workflow exported from one deployment imports cleanly into another.
+    """
+    __tablename__ = "saved_workflows"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    definition = Column(String, nullable=False)  # JSON: {nodes:[], edges:[]}
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class MessageFeedback(Base):
+    """User feedback (👍/👎 + comment) on an assistant message — the quality
+    improvement loop admins review."""
+    __tablename__ = "message_feedback"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, nullable=False, index=True)
+    message_id = Column(String, nullable=True)
+    user_id = Column(String, nullable=True, index=True)
+    rating = Column(String, nullable=False)  # "up" | "down"
+    comment = Column(String, nullable=True)
+    message_content = Column(String, nullable=True)  # snapshot for admin review
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Job(Base):

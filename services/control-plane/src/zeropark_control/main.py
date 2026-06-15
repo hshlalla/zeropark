@@ -59,6 +59,17 @@ class Deployment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UsageRecord(Base):
+    """Time-series of usage snapshots, one row per heartbeat — the data
+    monthly billing and trend charts are built from."""
+    __tablename__ = "usage_records"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex)
+    deployment_id = Column(String, index=True, nullable=False)
+    usage = Column(String, nullable=False)  # JSON snapshot
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 # ----------------------------------------------------------------- schemas
 
 class DeploymentCreate(BaseModel):
@@ -124,12 +135,59 @@ def _deployment_to_dict(d: Deployment) -> dict[str, Any]:
     }
 
 
+async def _offline_watcher() -> None:
+    """Alert (webhook) when a deployment stops heartbeating.
+
+    Fires once per offline transition; recovering deployments re-arm the alert.
+    Configure with ZEROPARK_CP_ALERT_WEBHOOK (e.g. a Slack incoming webhook).
+    """
+    import asyncio
+    import json
+
+    import httpx
+
+    webhook = os.environ.get("ZEROPARK_CP_ALERT_WEBHOOK")
+    if not webhook:
+        return
+    alerted: set[str] = set()
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                rows = await session.execute(select(Deployment))
+                deployments = rows.scalars().all()
+            now = datetime.utcnow()
+            for d in deployments:
+                if d.is_active != "true" or d.last_heartbeat is None:
+                    continue
+                interval = int(d.heartbeat_interval_s or "60")
+                offline = now - d.last_heartbeat > timedelta(seconds=interval * ONLINE_GRACE_FACTOR)
+                if offline and d.id not in alerted:
+                    alerted.add(d.id)
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        await client.post(webhook, json={
+                            "text": (
+                                f"[Zeropark] 배포본 offline: {d.name} ({d.client_name}) — "
+                                f"마지막 하트비트 {d.last_heartbeat.isoformat()}Z"
+                            ),
+                            "deployment_id": d.id,
+                        })
+                elif not offline:
+                    alerted.discard(d.id)  # recovered — re-arm
+        except Exception as exc:
+            print(f"Warning: offline watcher iteration failed: {exc}")
+        await asyncio.sleep(60)
+
+
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        import asyncio
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        watcher = asyncio.create_task(_offline_watcher())
         yield
+        watcher.cancel()
 
     app = FastAPI(
         title="Zeropark Control Plane",
@@ -214,6 +272,27 @@ def create_app() -> FastAPI:
             await session.commit()
         return {"status": "deleted"}
 
+    @app.get("/api/v1/deployments/{deployment_id}/usage-history", dependencies=[Depends(require_admin)])
+    async def usage_history(deployment_id: str, limit: int = 500) -> dict[str, Any]:
+        """Usage snapshots over time (newest first) for trend/billing views."""
+        import json
+
+        async with AsyncSessionLocal() as session:
+            rows = await session.execute(
+                select(UsageRecord)
+                .where(UsageRecord.deployment_id == deployment_id)
+                .order_by(UsageRecord.created_at.desc())
+                .limit(min(limit, 5000))
+            )
+            records = rows.scalars().all()
+        return {
+            "records": [
+                {"at": r.created_at.isoformat() if r.created_at else None,
+                 "usage": json.loads(r.usage)}
+                for r in records
+            ]
+        }
+
     # -------------------------------------------- heartbeat (from products)
 
     @app.post("/api/v1/heartbeat")
@@ -235,6 +314,10 @@ def create_app() -> FastAPI:
                 deployment.capabilities = json.dumps(body.capabilities)
             if body.usage is not None:
                 deployment.usage = json.dumps(body.usage)
+                # append to the usage time-series (billing / trend data)
+                session.add(
+                    UsageRecord(deployment_id=deployment.id, usage=json.dumps(body.usage))
+                )
             await session.commit()
             profile = json.loads(deployment.profile) if deployment.profile else {}
         # Returning the profile lets a deployment pick up config changes on the

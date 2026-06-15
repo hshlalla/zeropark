@@ -20,6 +20,10 @@ class TaskCreateRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     provider_id: str | None = None
     tenant: str | None = None
+    # Conversation memory (Dify-style): when set, the gateway loads this
+    # session's recent messages into the task context and persists the new
+    # user/assistant turns after the run.
+    session_id: str | None = None
 
 
 class SearchRequest(BaseModel):

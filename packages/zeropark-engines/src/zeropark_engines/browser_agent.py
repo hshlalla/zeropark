@@ -125,6 +125,27 @@ _TOOLS = [
 ]
 
 
+def allowed_domains() -> list[str]:
+    """ZEROPARK_BROWSER_ALLOWED_DOMAINS — CSV of domains the agent may visit.
+    Empty/unset = no restriction (netguard private-IP blocking still applies)."""
+    import os
+
+    raw = os.environ.get("ZEROPARK_BROWSER_ALLOWED_DOMAINS", "")
+    return [d.strip().lower().lstrip(".") for d in raw.split(",") if d.strip()]
+
+
+def domain_allowed(url: str) -> bool:
+    """True when the URL's host is within the allowlist (or no list is set).
+    Subdomains of an allowed domain are allowed (mail.samsung.com ⊂ samsung.com)."""
+    from urllib.parse import urlparse
+
+    domains = allowed_domains()
+    if not domains:
+        return True
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
 class BrowserAgentEngine(NativeEngine):
     id = "browser-agent"
     name = "Browser Agent (LLM-driven)"
@@ -164,6 +185,12 @@ class BrowserAgentEngine(NativeEngine):
     async def _act(self, page, name: str, args: dict[str, Any]) -> str:
         if name == "navigate":
             url = args["url"]
+            if not domain_allowed(url):
+                # refusal becomes the model's observation — it can pick another path
+                return (
+                    f"BLOCKED: '{url}' is outside this deployment's allowed domains "
+                    f"({', '.join(allowed_domains())}). Choose an allowed site or finish."
+                )
             validate_public_url(url)
             await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
             return f"Navigated to {url}"
@@ -221,6 +248,14 @@ class BrowserAgentEngine(NativeEngine):
             page = await context.new_page()
             try:
                 if start_url:
+                    if not domain_allowed(start_url):
+                        return TaskResult(
+                            task_id=task_id,
+                            status=TaskStatus.FAILED,
+                            capability=Capability.BROWSE,
+                            provider_id=self.id,
+                            error=f"URL '{start_url}' is outside the allowed domains for this deployment.",
+                        )
                     validate_public_url(start_url)
                     await page.goto(start_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
                     visited.append(start_url)

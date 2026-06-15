@@ -58,6 +58,42 @@ def _app_to_dict(app: App) -> dict[str, Any]:
     }
 
 
+class EnhancePromptRequest(BaseModel):
+    intent: str = Field(min_length=1)
+
+
+@apps_router.post("/enhance-prompt")
+async def enhance_prompt(body: EnhancePromptRequest, admin: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
+    """Turn a one-line intent into a production-grade system prompt
+    (role, constraints, tone, output format) — dify-style prompt generator."""
+    from zeropark_core import ZeroparkSettings
+    from zeropark_core.llm import ChatMessage, create_llm_client
+
+    settings = ZeroparkSettings()
+    if not settings.llm.api_key:
+        raise HTTPException(status_code=503, detail="LLM is not configured.")
+    client = create_llm_client(settings.llm.provider, settings.llm.api_key, settings.llm.base_url)
+    response = await client.achat_completion(
+        [
+            ChatMessage(
+                role="system",
+                content=(
+                    "You write production system prompts for AI agents. Given the admin's "
+                    "one-line intent, produce a complete system prompt with: 역할(role), "
+                    "행동 규칙/제약(constraints), 말투(tone), 출력 형식(output format), "
+                    "그리고 모르는 것은 모른다고 답하라는 안전 규칙. Write the prompt in the "
+                    "same language as the intent. Conversation variables may be referenced "
+                    "as {{variable_key}} placeholders if the intent mentions user inputs. "
+                    "Return ONLY the system prompt text, no commentary."
+                ),
+            ),
+            ChatMessage(role="user", content=body.intent),
+        ],
+        model=settings.llm.model or "gpt-4o-mini",
+    )
+    return {"prompt": response.content.strip()}
+
+
 @apps_router.get("")
 async def list_apps(current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
     """Users see published apps; admins also see drafts."""

@@ -96,6 +96,16 @@ def test_deployment_lifecycle_and_heartbeat(client):
     )
     assert blocked.status_code == 403
 
+    # usage time-series: one record per heartbeat with usage
+    client.patch(f"/api/v1/deployments/{dep_id}", headers=ADMIN, json={"is_active": True})
+    client.post("/api/v1/heartbeat", json={
+        "deployment_id": dep_id, "license_key": license_key,
+        "usage": {"tasks_total": 20, "tokens_total": 5000},
+    })
+    history = client.get(f"/api/v1/deployments/{dep_id}/usage-history", headers=ADMIN).json()["records"]
+    assert len(history) == 2  # first heartbeat + this one
+    assert history[0]["usage"]["tasks_total"] == 20  # newest first
+
     # list filter by client
     listed = client.get("/api/v1/deployments", headers=ADMIN, params={"client": "Samsung"}).json()
     assert len(listed["deployments"]) == 1

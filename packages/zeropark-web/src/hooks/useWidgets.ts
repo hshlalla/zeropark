@@ -18,22 +18,113 @@ export interface AppModel {
   description: string;
 }
 
-export const useChat = (appId: string | undefined, appMode: string | undefined) => {
+export const useChat = (
+  appId: string | undefined,
+  appMode: string | undefined,
+  appParams?: Record<string, any>
+) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // History state
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // Conversation variables (dify-style start form)
+  const variableDefs: { key: string; label: string; required?: boolean }[] =
+    (appParams?.variables as any[]) || [];
+  const [variablesSubmitted, setVariablesSubmitted] = useState(false);
+  const variablesNeeded = variableDefs.length > 0 && !variablesSubmitted;
+
+  // Deep-research HITL: a paused run hands back an editable plan
+  const [pendingPlan, setPendingPlan] = useState<any | null>(null);
+  const lastPromptRef = useRef<string>('');
+
+  // Summarize / Extract Knowledge state
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
+
+  const fetchSessions = async () => {
+    try {
+      const token = getToken();
+      if (!token || !appId) return;
+      const res = await fetch(`${API_BASE}/api/v1/conversations?app_id=${appId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data.conversations || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadSession = async (sessionId: string) => {
+    try {
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/api/v1/conversations/${sessionId}/messages`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages || []);
+        setCurrentSessionId(sessionId);
+        setVariablesSubmitted(true); // existing sessions already carry their variables
+        setPendingPlan(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const createNewChat = () => {
+    setCurrentSessionId(null);
+    setVariablesSubmitted(false);
+    setPendingPlan(null);
+    setMessages([
+      {
+        id: 'msg_init',
+        role: 'ai',
+        content: `Hello! I'm running on the "${appMode}" engine. How can I help you today?`
+      }
+    ]);
+  };
+
+  // Start-form submit: create the session up front and store the variables on
+  // it so the server injects them into every later turn.
+  const submitVariables = async (values: Record<string, any>) => {
+    try {
+      const token = getToken();
+      let sid = currentSessionId;
+      if (!sid) {
+        const sRes = await fetch(`${API_BASE}/api/v1/conversations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ app_id: appId })
+        });
+        if (!sRes.ok) return;
+        sid = (await sRes.json()).id;
+        setCurrentSessionId(sid);
+        fetchSessions();
+      }
+      const vRes = await fetch(`${API_BASE}/api/v1/conversations/${sid}/variables`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ values })
+      });
+      if (vRes.ok) setVariablesSubmitted(true);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (appId && appMode) {
-      // Initialize greeting
-      setMessages([
-        {
-          id: 'msg_init',
-          role: 'ai',
-          content: `Hello! I'm running on the "${appMode}" engine. How can I help you today?`
-        }
-      ]);
+      createNewChat();
+      fetchSessions();
     }
   }, [appId, appMode]);
 
@@ -41,11 +132,12 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async (customPrompt?: string) => {
+  const handleSend = async (customPrompt?: string, extraParams?: Record<string, any>) => {
     const textToSend = customPrompt !== undefined ? customPrompt : input;
     if (!textToSend.trim() || isLoading || !appMode) return;
 
     const userText = textToSend.trim();
+    lastPromptRef.current = userText;
     if (customPrompt === undefined) {
       setInput('');
     }
@@ -56,6 +148,22 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
 
     try {
       const token = getToken();
+      
+      let sessionIdToUse = currentSessionId;
+      if (!sessionIdToUse) {
+        const sRes = await fetch(`${API_BASE}/api/v1/conversations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ app_id: appId, title: userText.slice(0, 50) })
+        });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          sessionIdToUse = sData.id;
+          setCurrentSessionId(sessionIdToUse);
+          fetchSessions();
+        }
+      }
+
       const res = await fetch(`${API_BASE}/api/v1/tasks/stream`, {
         method: 'POST',
         headers: {
@@ -65,7 +173,13 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
         body: JSON.stringify({
           prompt: userText,
           mode: appMode,
-          params: {}
+          params: {
+            ...(appParams || {}),
+            // research agents pause for plan review unless a plan is provided
+            ...(appMode === 'research' && !extraParams?.plan ? { hitl: 'true' } : {}),
+            ...(extraParams || {}),
+            session_id: sessionIdToUse
+          }
         })
       });
 
@@ -123,13 +237,22 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
                 } else if (event.type === 'token') {
                   aiContent += event.message || '';
                 } else if (event.type === 'done') {
-                  const taskData = event.data || {};
+                  // done carries {status, result: TaskResult} — artifacts live on result
+                  const taskData = event.data?.result || event.data || {};
                   const inlineArtifact = (taskData.artifacts || []).find(
                     (a: any) => typeof a.inline === 'string' && a.inline
                   );
                   const fileArtifacts = (taskData.artifacts || []).filter((a: any) => a.uri);
 
-                  if (inlineArtifact) {
+                  // deep-research HITL: paused run returns the plan for review
+                  if ((event.data?.status || taskData.status) === 'paused' && inlineArtifact) {
+                    try {
+                      setPendingPlan(JSON.parse(inlineArtifact.inline));
+                      aiContent = '리서치 계획이 준비되었습니다. 아래에서 검토/수정 후 실행하세요.';
+                    } catch {
+                      aiContent = inlineArtifact.inline;
+                    }
+                  } else if (inlineArtifact) {
                     aiContent = inlineArtifact.inline;
                   } else if (fileArtifacts.length > 0) {
                     aiContent +=
@@ -171,6 +294,92 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
     }
   };
 
+  const extractKnowledge = async () => {
+    if (messages.length <= 1 || isSummarizing || !appMode) return;
+    setIsSummarizing(true);
+    setSummaryText('');
+
+    try {
+      const token = getToken();
+      
+      const conversationText = messages
+        .filter(m => m.id !== 'msg_init' && !m.id.startsWith('msg_err'))
+        .map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content}`)
+        .join('\n\n');
+
+      const prompt = `다음 대화 내용을 읽고, 핵심 결론과 중요한 지식을 구조화하여 마크다운 포맷으로 요약해 줘.\n\n[대화 내역]\n${conversationText}`;
+
+      const res = await fetch(`${API_BASE}/api/v1/tasks/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          mode: appMode,
+          params: { ...(appParams || {}) } // No session_id, so it does NOT save to conversation history
+        })
+      });
+
+      if (!res.ok) {
+        if (handleAuthError(res)) return;
+        setSummaryText('Error: Failed to extract knowledge.');
+        setIsSummarizing(false);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let aiContent = '';
+      let done = false;
+      let buffer = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader!.read();
+        done = readerDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.substring(6).trim();
+              if (!dataStr) continue;
+
+              try {
+                const event = JSON.parse(dataStr);
+                if (event.type === 'token') {
+                  aiContent += event.message || '';
+                  setSummaryText(aiContent);
+                } else if (event.type === 'done') {
+                  // done carries {status, result: TaskResult} — artifacts live on result
+                  const taskData = event.data?.result || event.data || {};
+                  const inlineArtifact = (taskData.artifacts || []).find(
+                    (a: any) => typeof a.inline === 'string' && a.inline
+                  );
+                  if (inlineArtifact) {
+                    aiContent = inlineArtifact.inline;
+                    setSummaryText(aiContent);
+                  }
+                } else if (event.type === 'error') {
+                  aiContent += `\n\nError: ${event.message}`;
+                  setSummaryText(aiContent);
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      setSummaryText(`Network Error: ${err.message}`);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
   return {
     messages,
     input,
@@ -178,7 +387,26 @@ export const useChat = (appId: string | undefined, appMode: string | undefined) 
     isLoading,
     messagesEndRef,
     handleSend,
-    handleKeyDown
+    handleKeyDown,
+    sessions,
+    currentSessionId,
+    loadSession,
+    createNewChat,
+    isSummarizing,
+    summaryText,
+    setSummaryText,
+    extractKnowledge,
+    // conversation variables (start form)
+    variableDefs,
+    variablesNeeded,
+    submitVariables,
+    // deep-research HITL plan review
+    pendingPlan,
+    setPendingPlan,
+    approvePlan: (plan: any) => {
+      setPendingPlan(null);
+      handleSend(lastPromptRef.current, { plan });
+    }
   };
 };
 

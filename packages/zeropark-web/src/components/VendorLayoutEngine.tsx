@@ -19,20 +19,21 @@ interface VendorLayoutEngineProps {
   layout: LayoutConfig;
   appId?: string;
   appMode?: string;
+  appParams?: Record<string, any>;
 }
 
-export const VendorLayoutEngine: React.FC<VendorLayoutEngineProps> = ({ layout, appId, appMode }) => {
+export const VendorLayoutEngine: React.FC<VendorLayoutEngineProps> = ({ layout, appId, appMode, appParams }) => {
   // Render widget instance by its ID
   const renderWidget = (widgetId: string) => {
     // Check if custom slots override the widget
     const SlotComponent = (CustomSlots as any)[`Custom_${widgetId}`] || (CustomSlots as any)[widgetId];
     if (SlotComponent) {
-      return <SlotComponent appId={appId} appMode={appMode} />;
+      return <SlotComponent appId={appId} appMode={appMode} appParams={appParams} />;
     }
 
     switch (widgetId) {
       case 'chat':
-        return <ChatWidget appId={appId} appMode={appMode} />;
+        return <ChatWidget appId={appId} appMode={appMode} appParams={appParams} />;
       case 'knowledge':
         return <KnowledgeWidget />;
       case 'stats':

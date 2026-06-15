@@ -74,10 +74,13 @@ async def update_user_role(
         raise HTTPException(status_code=404, detail="User not found.")
         
     user.role = body.role
+    # revoke the user's existing tokens so the new role takes effect immediately
+    # (their old access token still claims the previous role until it's rejected)
+    user.token_version = (user.token_version or 0) + 1
     await db.commit()
     await db.refresh(user)
-    
-    return {"message": f"User role updated to {user.role}"}
+
+    return {"message": f"User role updated to {user.role}. Existing sessions revoked."}
 
 @admin_router.get("/stats", response_model=StatsResponse)
 async def get_stats(db: AsyncSession = Depends(get_db_session)):

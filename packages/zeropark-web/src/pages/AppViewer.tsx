@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Bot } from 'lucide-react';
 import { VendorLayoutEngine } from '../components/VendorLayoutEngine';
 import { authFetch } from '../api';
@@ -14,6 +14,8 @@ interface AppModel {
 const AppViewer: React.FC = () => {
   const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDashboard = location.pathname.startsWith('/dashboard');
   const [app, setApp] = useState<AppModel | null>(null);
   const [layoutConfig, setLayoutConfig] = useState<any>({
     type: 'default',
@@ -51,7 +53,14 @@ const AppViewer: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', backgroundColor: 'var(--bg-color)', margin: '-2rem', overflow: 'hidden' }}>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: isDashboard ? 'calc(100vh - 64px)' : '100vh', 
+      backgroundColor: 'var(--bg-color)', 
+      margin: isDashboard ? '-2rem' : '0', 
+      overflow: 'hidden' 
+    }}>
       {/* Header */}
       <header style={{
         padding: '1rem 2rem',
@@ -61,7 +70,7 @@ const AppViewer: React.FC = () => {
         alignItems: 'center',
         gap: '1rem'
       }}>
-        <button onClick={() => navigate('/dashboard')} style={{ color: 'var(--text-secondary)' }}>
+        <button onClick={() => isDashboard ? navigate('/dashboard') : window.close()} style={{ color: 'var(--text-secondary)' }}>
           <ArrowLeft size={20} />
         </button>
         <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--primary-color)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -75,7 +84,15 @@ const AppViewer: React.FC = () => {
 
       {/* Dynamic Layout Engine Area */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <VendorLayoutEngine layout={layoutConfig} appId={appId} appMode={app.mode} />
+        <VendorLayoutEngine
+          layout={layoutConfig}
+          appId={appId}
+          appMode={app.mode}
+          appParams={{
+            ...((app as any).params || {}),
+            ...((app as any).system_prompt ? { system: (app as any).system_prompt } : {}),
+          }}
+        />
       </div>
     </div>
   );

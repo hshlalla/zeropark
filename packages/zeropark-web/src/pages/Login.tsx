@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { setToken, API_BASE } from '../api';
+import { storeTokens, API_BASE } from '../api';
 
 const Login: React.FC = () => {
   const handleGoogleLogin = () => {
@@ -15,19 +15,15 @@ const Login: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setToken(data.access_token);
-        // Store user info briefly for frontend use
+        storeTokens(data);  // access + refresh
         localStorage.setItem('zp_user', JSON.stringify(data.user));
         window.location.href = '/dashboard';
       } else {
         console.error("Guest login failed");
       }
     } catch (e) {
-      console.warn("Backend is not running. Using fallback mock login for UI testing.", e);
-      // Fallback logic for when backend is offline
-      setToken(`mock_token_${role}`);
-      localStorage.setItem('zp_user', JSON.stringify({ email: `guest_${role}@zeropark.local`, role: role }));
-      window.location.href = '/dashboard';
+      console.error("Login failed — backend unreachable.", e);
+      alert('로그인에 실패했습니다. 게이트웨이가 실행 중인지 확인하세요.');
     }
   };
 
