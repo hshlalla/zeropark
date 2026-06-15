@@ -1,8 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, Compass, Activity, Trash2, Pencil } from 'lucide-react';
+import { Plus, X, Compass, Activity, Trash2, Pencil, Code } from 'lucide-react';
 import { API_BASE, authFetch, isAdmin } from '../api';
 import { StatsWidget } from '../components/widgets/StatsWidget';
+import Editor from '@monaco-editor/react';
+import { LiveProvider, LiveError, LivePreview } from 'react-live';
+import { ChatWidget } from '../components/widgets/ChatWidget';
+import { KnowledgeWidget } from '../components/widgets/KnowledgeWidget';
+import * as LucideIcons from 'lucide-react';
+
+const vibeScope = {
+  React,
+  ChatWidget,
+  KnowledgeWidget,
+  StatsWidget,
+  ...LucideIcons
+};
 
 interface VariableDef {
   key: string;
@@ -49,6 +62,8 @@ const Dashboard: React.FC = () => {
   const [temperature, setTemperature] = useState('');
   const [variables, setVariables] = useState<VariableDef[]>([]);
   const [collectionIds, setCollectionIds] = useState<string[]>([]);
+  const [uiCode, setUiCode] = useState('');
+  const [activeTab, setActiveTab] = useState<'general' | 'vibe'>('general');
 
   // deployment options for the modal
   const [modelChoices, setModelChoices] = useState<string[]>([]);
@@ -62,6 +77,8 @@ const Dashboard: React.FC = () => {
     setTemperature('');
     setVariables([]);
     setCollectionIds([]);
+    setUiCode('');
+    setActiveTab('general');
   };
 
   const openEditModal = (app: AppInfo) => {
@@ -73,6 +90,8 @@ const Dashboard: React.FC = () => {
     setTemperature(app.params?.temperature != null ? String(app.params.temperature) : '');
     setVariables(app.params?.variables || []);
     setCollectionIds(app.params?.collection_ids || []);
+    setUiCode(app.params?.ui_code || '');
+    setActiveTab('general');
     setIsModalOpen(true);
   };
 
@@ -141,6 +160,7 @@ const Dashboard: React.FC = () => {
     const validVariables = variables.filter(v => v.key.trim());
     if (validVariables.length) params.variables = validVariables;
     if (collectionIds.length) params.collection_ids = collectionIds;
+    if (uiCode.trim()) params.ui_code = uiCode;
 
     const payload = {
       name: appName,
@@ -302,8 +322,9 @@ const Dashboard: React.FC = () => {
           backdropFilter: 'blur(4px)'
         }}>
           <div className="glass-panel" style={{
-            width: '100%', maxWidth: '500px', padding: '2rem', borderRadius: 'var(--radius-lg)',
-            boxShadow: 'var(--shadow-lg)', backgroundColor: 'var(--surface-color)', position: 'relative'
+            width: '100%', maxWidth: activeTab === 'vibe' ? '1200px' : '500px', padding: '2rem', borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-lg)', backgroundColor: 'var(--surface-color)', position: 'relative',
+            height: activeTab === 'vibe' ? '90vh' : 'auto', display: 'flex', flexDirection: 'column'
           }}>
             <button
               onClick={() => { resetModal(); setIsModalOpen(false); }}
@@ -311,12 +332,39 @@ const Dashboard: React.FC = () => {
             >
               <X size={20} />
             </button>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '1.5rem' }}>
-              {editingAppId ? 'Edit Agent' : 'Create New App'}
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: '700', margin: 0 }}>
+                {editingAppId ? 'Edit Agent' : 'Create New App'}
+              </h2>
+              <div style={{ display: 'flex', backgroundColor: 'var(--bg-color)', borderRadius: 'var(--radius-md)', padding: '0.25rem' }}>
+                <button
+                  onClick={() => setActiveTab('general')}
+                  style={{
+                    padding: '0.4rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontWeight: '600',
+                    backgroundColor: activeTab === 'general' ? 'var(--surface-color)' : 'transparent',
+                    boxShadow: activeTab === 'general' ? 'var(--shadow-sm)' : 'none', color: activeTab === 'general' ? 'var(--text-primary)' : 'var(--text-secondary)'
+                  }}
+                >
+                  General
+                </button>
+                <button
+                  onClick={() => setActiveTab('vibe')}
+                  style={{
+                    padding: '0.4rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', fontWeight: '600',
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    backgroundColor: activeTab === 'vibe' ? 'var(--surface-color)' : 'transparent',
+                    boxShadow: activeTab === 'vibe' ? 'var(--shadow-sm)' : 'none', color: activeTab === 'vibe' ? 'var(--primary-color)' : 'var(--text-secondary)'
+                  }}
+                >
+                  <Code size={16} /> Vibe Editor
+                </button>
+              </div>
+            </div>
 
-            <form onSubmit={handleSubmitApp} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div>
+            <form onSubmit={handleSubmitApp} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1, overflow: 'hidden' }}>
+              {activeTab === 'general' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
+                <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>App Name</label>
                 <input 
                   type="text" 
@@ -494,8 +542,29 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               )}
+              </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '1.5rem', flex: 1, overflow: 'hidden' }}>
+                  <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                    <Editor
+                      height="100%"
+                      defaultLanguage="typescript"
+                      theme="vs-dark"
+                      value={uiCode}
+                      onChange={(value) => setUiCode(value || '')}
+                      options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2 }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-color)', position: 'relative', overflow: 'hidden' }}>
+                    <LiveProvider code={uiCode || 'render(<div style={{padding: "2rem"}}>Vibe Code Preview</div>);'} scope={{ ...vibeScope, appId: editingAppId, appMode: selectedMode }} noInline={true}>
+                      <LivePreview style={{ height: '100%', width: '100%', overflow: 'auto' }} />
+                      <LiveError style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '1rem', background: '#fee2e2', color: '#991b1b', fontSize: '0.8rem', fontFamily: 'monospace', maxHeight: '50%', overflow: 'auto' }} />
+                    </LiveProvider>
+                  </div>
+                </div>
+              )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: activeTab === 'general' ? '1rem' : '0' }}>
                 <button type="button" onClick={() => { resetModal(); setIsModalOpen(false); }} className="btn-secondary">Cancel</button>
                 <button type="submit" className="btn-primary" disabled={!appName.trim() || !selectedMode}>
                   {editingAppId ? 'Save Changes' : 'Create Agent'}

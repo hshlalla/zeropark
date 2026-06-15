@@ -5,6 +5,17 @@ import { StatsWidget } from './widgets/StatsWidget';
 // custom slots mapping (lazy-load or direct import configuration)
 import * as CustomSlots from '../custom-slots';
 
+import { LiveProvider, LiveError, LivePreview } from 'react-live';
+import * as LucideIcons from 'lucide-react';
+
+const vibeScope = {
+  React,
+  ChatWidget,
+  KnowledgeWidget,
+  StatsWidget,
+  ...LucideIcons
+};
+
 interface WidgetConfig {
   id: string;
   position?: string | { x: number; y: number; w: number; h: number };
@@ -23,6 +34,22 @@ interface VendorLayoutEngineProps {
 }
 
 export const VendorLayoutEngine: React.FC<VendorLayoutEngineProps> = ({ layout, appId, appMode, appParams }) => {
+  // If Vibe Coding UI is provided for this app, it overrides the entire layout
+  if (appParams?.ui_code) {
+    return (
+      <LiveProvider 
+        code={appParams.ui_code} 
+        scope={{ ...vibeScope, appId, appMode, appParams }} 
+        noInline={true}
+      >
+        <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          <LivePreview style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} />
+          <LiveError style={{ position: 'absolute', bottom: 0, left: 0, right: 0, maxHeight: '30%', overflow: 'auto', backgroundColor: '#fee2e2', color: '#991b1b', padding: '1rem', fontFamily: 'monospace', fontSize: '0.85rem', zIndex: 50 }} />
+        </div>
+      </LiveProvider>
+    );
+  }
+
   // Render widget instance by its ID
   const renderWidget = (widgetId: string) => {
     // Check if custom slots override the widget
