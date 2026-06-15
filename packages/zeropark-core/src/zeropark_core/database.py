@@ -1,9 +1,12 @@
 import os
+from pathlib import Path
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 # Default to async sqlite for local development
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./zeropark.db")
+_ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
+_DEFAULT_DB_URL = f"sqlite+aiosqlite:///{(_ROOT_DIR / 'zeropark.db').as_posix()}"
+DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_DB_URL)
 
 engine = create_async_engine(
     DATABASE_URL, 
