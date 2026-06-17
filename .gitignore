@@ -49,3 +49,8 @@ artifacts/
 *.db
 *.sqlite3
 
+
+# SQLite WAL sidecar files (runtime only)
+*.db-wal
+*.db-shm
+*.db-journal

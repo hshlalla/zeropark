@@ -2,7 +2,7 @@
 doc_type: backlog
 project_id: zeropark_v2
 status: active
-updated_at: 2026-06-12
+updated_at: 2026-06-16
 ---
 
 # Zeropark 기능 백로그 (dify/deerflow 갭 + 운영 갭)
@@ -24,6 +24,16 @@ updated_at: 2026-06-12
 >   팟캐스트 대본 파싱을 OpenAI JSON 모드 + object 스키마 + 라인 폴백으로 견고화.
 >
 > 잔여 후보(미착수): GraphRAG 네이티브 엔진화(현재 MCP 경유 1차 연동으로 충분).
+>
+> 보안/운영 (2026-06-16):
+> - **인증 하드닝**: SECRET_KEY production 강제(미설정 시 부팅 거부), `User.token_version` 기반
+>   토큰 revocation + DB is_active/role 검증, access 8h + refresh 토큰(/auth/refresh,
+>   /auth/logout-all), 프론트 authFetch 자동 refresh. role 변경 시 기존 세션 즉시 무효.
+> - **DB 확장성 결정 — 단일 서버 운영 채택**: 고객사당 게이트웨이 1인스턴스 전제.
+>   SQLite + WAL(busy_timeout/synchronous=NORMAL) 적용 → 동시 쓰기 80건 lock 에러 0 검증.
+>   **Postgres/Redis 전환은 의도적으로 하지 않음** (현 규모에 불필요).
+>   멀티 인스턴스 HA가 실제로 필요해지면: `DATABASE_URL=postgresql+asyncpg://...`(코드 변경 0) +
+>   UsageTracker/JobManager를 Redis로 외부화. 그 전까진 단일 인스턴스가 더 단순/안전.
 
 ---
 

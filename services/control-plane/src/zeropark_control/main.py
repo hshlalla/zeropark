@@ -25,18 +25,29 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, String, select
+from sqlalchemy import Column, DateTime, String, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.environ.get("CONTROL_PLANE_DATABASE_URL", "sqlite+aiosqlite:///./controlplane.db")
 ONLINE_GRACE_FACTOR = 3
+_IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    connect_args={"check_same_thread": False} if _IS_SQLITE else {},
 )
+
+if _IS_SQLITE:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
+
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
