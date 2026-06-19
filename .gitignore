@@ -54,3 +54,4 @@ artifacts/
 *.db-wal
 *.db-shm
 *.db-journal
+qdrant_data/

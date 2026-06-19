@@ -1,7 +1,7 @@
 // Single source of truth for the gateway address. Override per environment
 // with VITE_API_URL (e.g. .env.local); defaults to the local gateway port.
 export const API_BASE: string =
-  (import.meta as any).env?.VITE_API_URL || 'http://localhost:8080';
+  (import.meta as any).env?.VITE_API_URL || '';
 
 export const setToken = (token: string) => {
   localStorage.setItem('zp_access_token', token);
