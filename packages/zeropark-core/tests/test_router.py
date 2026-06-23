@@ -63,3 +63,14 @@ def test_execute_dispatches_to_capability_handler() -> None:
     result = asyncio.run(provider.execute(task, task_id="t1"))
     assert result.provider_id == "searxng"
     assert result.status.value == "succeeded"
+
+
+def test_assistant_mode_is_registered():
+    router = Router(ProviderRegistry())
+    plan = router.plan("assistant")
+    assert plan.primary == Capability.ASSISTANT
+    assert plan.pipeline == (Capability.ASSISTANT,)
+
+
+def test_assistant_capability_value():
+    assert Capability.ASSISTANT.value == "assistant"

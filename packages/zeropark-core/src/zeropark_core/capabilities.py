@@ -30,6 +30,7 @@ class Capability(str, Enum):
     PAGE = "page"                # generate and publish a web page / site
     AUDIO = "audio"              # text-to-speech / narrated podcast
     CHAT = "chat"                # conversational question answering
+    ASSISTANT = "assistant"      # conversational chat that can call other engines as tools
 
     def __str__(self) -> str:  # so f"{cap}" renders the value, not "Capability.X"
         return self.value

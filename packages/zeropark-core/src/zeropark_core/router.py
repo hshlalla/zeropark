@@ -98,6 +98,12 @@ DEFAULT_MODES: dict[str, ModePlan] = {
         (Capability.RESEARCH, Capability.AUDIO),
         "Generate a narrated audio / podcast.",
     ),
+    "assistant": ModePlan(
+        "assistant",
+        Capability.ASSISTANT,
+        (Capability.ASSISTANT,),
+        "Conversational assistant that can call tools (image, slides, sheets, research, knowledge).",
+    ),
     "chat": ModePlan(
         "chat",
         Capability.CHAT,
