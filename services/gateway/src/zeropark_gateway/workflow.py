@@ -42,7 +42,10 @@ def _build_orchestrator(definition: WorkflowDefinition) -> DAGOrchestrator:
     llm_client = None
     if settings.llm.api_key:
         llm_client = create_llm_client(
-            settings.llm.provider, settings.llm.api_key, settings.llm.base_url
+            provider=settings.llm.provider,
+            api_key=settings.llm.api_key,
+            base_url=settings.llm.base_url,
+            use_local_embeddings=settings.llm.use_local_embeddings
         )
     return DAGOrchestrator(
         definition,

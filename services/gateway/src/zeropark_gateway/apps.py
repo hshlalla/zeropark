@@ -72,7 +72,7 @@ async def enhance_prompt(body: EnhancePromptRequest, admin: dict = Depends(get_c
     settings = ZeroparkSettings()
     if not settings.llm.api_key:
         raise HTTPException(status_code=503, detail="LLM is not configured.")
-    client = create_llm_client(settings.llm.provider, settings.llm.api_key, settings.llm.base_url)
+    client = create_llm_client(settings.llm.provider, settings.llm.api_key, settings.llm.base_url, settings.llm.use_local_embeddings)
     response = await client.achat_completion(
         [
             ChatMessage(

@@ -286,6 +286,46 @@ def create_app() -> FastAPI:
         tenant: str | None = None,
         user_role: str | None = None,
     ) -> dict[str, Any]:
+        settings: ZeroparkSettings = request.app.state.settings
+        
+        # --- Semantic Cache Check ---
+        from zeropark_core.semantic_cache import semantic_cache
+        from zeropark_core.llm import create_llm_client
+        llm_client = None
+        query_emb = None
+        
+        if settings.semantic_cache_enabled and capability in (Capability.CHAT, Capability.RAG) and prompt and prompt != "upload_only":
+            try:
+                llm_client = create_llm_client(
+                    provider=settings.llm.provider,
+                    api_key=settings.llm.api_key,
+                    base_url=settings.llm.base_url,
+                    use_local_embeddings=settings.llm.use_local_embeddings
+                )
+                query_emb = llm_client.create_embeddings([prompt])[0]
+                cached_answer = semantic_cache.similarity_search(query_emb)
+                if cached_answer:
+                    # Return mocked TaskResult
+                    from zeropark_core import TaskStatus, Artifact
+                    return {
+                        "task_id": f"task_{uuid.uuid4().hex[:12]}",
+                        "status": TaskStatus.SUCCEEDED.value,
+                        "capability": capability.value,
+                        "provider_id": "semantic_cache",
+                        "artifacts": [
+                            {
+                                "id": f"art_{uuid.uuid4().hex[:12]}",
+                                "kind": "message",
+                                "title": "Cached Answer",
+                                "inline": cached_answer,
+                                "metadata": {"cached": True}
+                            }
+                        ],
+                        "metrics": {"cached": True}
+                    }
+            except Exception as e:
+                print(f"Semantic Cache check failed: {e}")
+        # ---------------------------
         needs_rag_clipping = capability == Capability.RAG or (
             capability == Capability.CHAT and params.get("collection_ids")
         )
@@ -325,6 +365,22 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         payload = result.model_dump(mode="json")
         usage.record(capability.value, payload, failed=result.status.value == "failed")
+        
+        # --- Semantic Cache Save ---
+        if settings.semantic_cache_enabled and query_emb and result.status.value == "succeeded":
+            inline = next(
+                (a.get("inline") for a in payload.get("artifacts", [])
+                 if isinstance(a.get("inline"), str) and a.get("inline")),
+                None,
+            )
+            if inline:
+                # Fire and forget
+                import asyncio
+                asyncio.get_event_loop().run_in_executor(
+                    None, semantic_cache.set_cache, query_emb, inline
+                )
+        # ---------------------------
+        
         return payload
 
     @app.get("/health")
@@ -481,6 +537,28 @@ def create_app() -> FastAPI:
             tenant=body.tenant,
         )
         task_id = f"task_{uuid.uuid4().hex[:12]}"
+        
+        # --- Semantic Cache Check ---
+        settings: ZeroparkSettings = request.app.state.settings
+        from zeropark_core.semantic_cache import semantic_cache
+        from zeropark_core.llm import create_llm_client
+        llm_client = None
+        query_emb = None
+        cached_answer = None
+        
+        if settings.semantic_cache_enabled and plan.primary in (Capability.CHAT, Capability.RAG) and body.prompt and body.prompt != "upload_only":
+            try:
+                llm_client = create_llm_client(
+                    provider=settings.llm.provider,
+                    api_key=settings.llm.api_key,
+                    base_url=settings.llm.base_url,
+                    use_local_embeddings=settings.llm.use_local_embeddings
+                )
+                query_emb = llm_client.create_embeddings([body.prompt])[0]
+                cached_answer = semantic_cache.similarity_search(query_emb)
+            except Exception as e:
+                print(f"Semantic Cache check failed in stream: {e}")
+        # ---------------------------
 
         async def event_source():
             def sse(payload: dict[str, Any]) -> str:
@@ -488,14 +566,32 @@ def create_app() -> FastAPI:
 
             ai_content = ""
             try:
-                async for event in provider.stream(task, task_id=task_id):
-                    if event.type == "token":
-                        ai_content += event.message or ""
-                    elif event.type == "artifact" and not ai_content:
-                        art = event.data.get("artifact", {})
-                        if art.get("inline"):
-                            ai_content = art["inline"]
-                    yield sse(event.model_dump(mode="json"))
+                if cached_answer:
+                    # Stream the cached answer
+                    ai_content = cached_answer
+                    from zeropark_core import RunEvent, TaskStatus
+                    yield sse(RunEvent(task_id=task_id, type="status", status=TaskStatus.STARTED).model_dump(mode="json"))
+                    yield sse(RunEvent(
+                        task_id=task_id,
+                        type="artifact",
+                        data={"artifact": {
+                            "id": f"art_{uuid.uuid4().hex[:12]}",
+                            "kind": "message",
+                            "title": "Cached Answer",
+                            "inline": cached_answer,
+                            "metadata": {"cached": True}
+                        }}
+                    ).model_dump(mode="json"))
+                    yield sse(RunEvent(task_id=task_id, type="done", status=TaskStatus.SUCCEEDED).model_dump(mode="json"))
+                else:
+                    async for event in provider.stream(task, task_id=task_id):
+                        if event.type == "token":
+                            ai_content += event.message or ""
+                        elif event.type == "artifact" and not ai_content:
+                            art = event.data.get("artifact", {})
+                            if art.get("inline"):
+                                ai_content = art["inline"]
+                        yield sse(event.model_dump(mode="json"))
             except (ProviderNotConfigured, ZeroparkError) as exc:
                 yield sse({"type": "error", "task_id": task_id, "message": str(exc)})
             except httpx.HTTPError as exc:
@@ -504,6 +600,14 @@ def create_app() -> FastAPI:
                 if session_id and ai_content:
                     from zeropark_gateway.conversations import append_turn
                     await append_turn(session_id, body.prompt, ai_content)
+                
+                # --- Semantic Cache Save ---
+                if not cached_answer and settings.semantic_cache_enabled and query_emb and ai_content:
+                    import asyncio
+                    asyncio.get_event_loop().run_in_executor(
+                        None, semantic_cache.set_cache, query_emb, ai_content
+                    )
+                # ---------------------------
 
         return StreamingResponse(
             event_source(),

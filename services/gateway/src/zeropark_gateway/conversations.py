@@ -51,7 +51,7 @@ async def _default_summarize(existing_summary: str, turns: list[dict[str, str]])
     settings = ZeroparkSettings()
     if not settings.llm.api_key:
         return existing_summary  # no LLM configured — keep whatever we had
-    client = create_llm_client(settings.llm.provider, settings.llm.api_key, settings.llm.base_url)
+    client = create_llm_client(settings.llm.provider, settings.llm.api_key, settings.llm.base_url, settings.llm.use_local_embeddings)
     transcript = "\n".join(f"{t['role']}: {t['content']}" for t in turns)
     response = await client.achat_completion(
         [
