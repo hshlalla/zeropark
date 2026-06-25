@@ -9,13 +9,14 @@ import os
 import shutil
 from datetime import datetime
 
+from core.predefined.pptx_scanner import write_cell, write_chart, write_text_shape
 from langchain_core.messages import AIMessage
 from pptx import Presentation
 
+from agents.models import CalculationResult, SlideMapping
 from agents.state import AgentState
-from agents.models import SlideMapping, CalculationResult
-from core.predefined.pptx_scanner import write_cell, write_text_shape, write_chart
 from agents.utils import load_skills
+
 from .fill_validator import check_fill_completeness, scan_unfilled
 
 _SKILLS = load_skills("filler")
@@ -69,7 +70,10 @@ def fill_pptx(state: AgentState) -> dict:
         if success:
             ok_count += 1
         else:
-            failed.append(f"slide={t.slide_idx} shape={t.shape_num} [{t.row},{t.col}] key={t.value_key!r}")
+            failed.append(
+                f"slide={t.slide_idx} shape={t.shape_num}"
+                f" [{t.row},{t.col}] key={t.value_key!r}"
+            )
 
     if failed:
         for f in failed:
@@ -145,7 +149,9 @@ def fill_pptx(state: AgentState) -> dict:
     if _SKILLS:
         unfilled = scan_unfilled(prs)
         if unfilled:
-            print(f"[Filler] ⚠ [Skill 4] FAIL Unfilled Scan: {len(unfilled)}개 잔여 placeholder 발견")
+            print(
+                f"[Filler] ⚠ [Skill 4] FAIL Unfilled Scan: {len(unfilled)}개 잔여 placeholder 발견"
+            )
             for u in unfilled[:10]:
                 loc = f"row={u['row']},col={u['col']}" if u["type"] == "table" else ""
                 print(f"  slide={u['slide_idx']} shape={u['shape']!r} {loc}: {u['text']!r}")

@@ -25,15 +25,15 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
-from agents.state import AgentState
-from agents.nodes.data_analyzer import analyze_data
-from agents.nodes.reader import read_template
-from agents.nodes.planner import plan_formulas
 from agents.nodes.calculator import calculate_kpis
+from agents.nodes.data_analyzer import analyze_data
 from agents.nodes.filler import fill_pptx
-from agents.nodes.verifier import verify_output
 from agents.nodes.insight_writer import write_insights
 from agents.nodes.manager import manage_pipeline, route_from_manager
+from agents.nodes.planner import plan_formulas
+from agents.nodes.reader import read_template
+from agents.nodes.verifier import verify_output
+from agents.state import AgentState
 
 
 def build_graph():

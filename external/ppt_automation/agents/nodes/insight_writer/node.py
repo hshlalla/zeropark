@@ -14,14 +14,14 @@ import os
 import re
 from collections import defaultdict
 
+from core.predefined.pptx_scanner import scan_pptx, write_insight_shape
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pptx import Presentation
 
-from agents.state import AgentState
 from agents.models import CalculationResult, SlideMapping
+from agents.state import AgentState
 from agents.utils import get_anthropic_api_key, load_contract, load_skills
-from core.predefined.pptx_scanner import scan_pptx, write_insight_shape
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _CONFIG_PATH = os.path.join(_DIR, "insight_targets.json")

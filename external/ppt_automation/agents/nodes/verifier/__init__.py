@@ -1,3 +1,3 @@
-from .node import verify_output, MAX_RETRIES
+from .node import MAX_RETRIES, verify_output
 
 __all__ = ["verify_output", "MAX_RETRIES"]

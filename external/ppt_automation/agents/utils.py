@@ -16,9 +16,12 @@ GENERATED_DIR = os.path.join(_ROOT, "cache")
 AGENT_GENERATED_DIR = os.path.join(_ROOT, "core", "agent_generated")
 
 # 에이전트가 생성하는 파일 종류별 하위 폴더 (모두 agent_generated/ 아래)
-MAPPINGS_DIR    = os.path.join(AGENT_GENERATED_DIR, "mappings")    # mapping_*.json (어디에 뭘 넣을지)
-CALCULATORS_DIR = os.path.join(AGENT_GENERATED_DIR, "calculators") # kpi_calculator_*.py (LLM fallback 코드)
-FORMULAS_DIR    = os.path.join(AGENT_GENERATED_DIR, "formulas")    # formulas_*.py (도출된 계산식 고정 코드)
+# mapping_*.json (어디에 뭘 넣을지)
+MAPPINGS_DIR    = os.path.join(AGENT_GENERATED_DIR, "mappings")
+# kpi_calculator_*.py (LLM fallback 코드)
+CALCULATORS_DIR = os.path.join(AGENT_GENERATED_DIR, "calculators")
+# formulas_*.py (도출된 계산식 고정 코드)
+FORMULAS_DIR    = os.path.join(AGENT_GENERATED_DIR, "formulas")
 
 
 # Anthropic API 키 조회 우선순위 (앞에 있는 환경변수부터 사용)

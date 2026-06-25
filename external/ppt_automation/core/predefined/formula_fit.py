@@ -15,10 +15,10 @@
 from __future__ import annotations
 
 import re
-import pandas as pd
 
+import pandas as pd
 from agents.models import KeySpec
-from domain.config import TOLERANCE_PCT, TOLERANCE_MOM, TOLERANCE_OTHER
+from domain.config import TOLERANCE_MOM, TOLERANCE_OTHER, TOLERANCE_PCT
 
 # 세그먼트 후보로 쓸 범주형 차원 (있으면 0~1개를 필터로 시도)
 _SEGMENT_DIMS = ["platform", "intent_lv1", "generic_branded", "channel", "sentiment"]
@@ -60,7 +60,9 @@ def _numeric_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
 
 
-def _candidate_numerators(key: str, numeric: list[str], denom_cols: list[str], top: int = 8) -> list[str]:
+def _candidate_numerators(
+    key: str, numeric: list[str], denom_cols: list[str], top: int = 8
+) -> list[str]:
     """key 토큰과 컬럼명 겹침으로 분자 후보 우선순위화 (denom 제외)."""
     cands = [c for c in numeric if c not in denom_cols]
     ktoks = _toks(key)
@@ -142,10 +144,12 @@ def fit_key(key: str, target: float, fmt: str, df_key: str, df: pd.DataFrame,
             a = _agg_sub(cs if period == "cur" else ps, num, denom)
             return a * scale if a is not None else None
         if period == "mom":
-            a = _agg_sub(cs, num, denom); b = _agg_sub(ps, num, denom)
+            a = _agg_sub(cs, num, denom)
+            b = _agg_sub(ps, num, denom)
             return (a - b) * scale if a is not None and b is not None else None
         if period == "ratio":
-            a = _agg_sub(cs, num, denom); b = _agg_sub(ps, num, denom)
+            a = _agg_sub(cs, num, denom)
+            b = _agg_sub(ps, num, denom)
             return (a / b) * scale if a is not None and b not in (None, 0) else None
         return None
 
@@ -238,7 +242,7 @@ def build_targets(answer_slides: list[dict], mapping_targets: list[dict]) -> dic
             elif sh.get("type") == "text" and sh.get("text"):
                 text_val[(idx, num)] = sh["text"]
 
-    from collections import defaultdict, Counter
+    from collections import Counter, defaultdict
     by_key: dict[str, list[tuple[float, str]]] = defaultdict(list)
     for t in mapping_targets:
         key = t["value_key"]

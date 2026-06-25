@@ -9,14 +9,22 @@ import json
 import os
 import re
 
+from core.predefined.pptx_scanner import is_kpi_placeholder
+from core.predefined.pptx_scanner import scan_pptx_cached as scan_pptx
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from agents.models import ChartTarget, SlideMapping
 from agents.state import AgentState
-from agents.models import SlideMapping, ChartTarget
-from core.predefined.pptx_scanner import scan_pptx_cached as scan_pptx, is_kpi_placeholder
-from .kpi_discovery import scan_placeholders, check_mapping_completeness, check_duplicate_kpis
-from agents.utils import load_skills, load_contract, template_hash, MAPPINGS_DIR, get_anthropic_api_key
+from agents.utils import (
+    MAPPINGS_DIR,
+    get_anthropic_api_key,
+    load_contract,
+    load_skills,
+    template_hash,
+)
+
+from .kpi_discovery import check_duplicate_kpis, check_mapping_completeness, scan_placeholders
 
 _CONTRACT = load_contract("reader")   # agents/contracts/reader.md
 _SKILLS   = load_skills("reader")     # agents/skills/reader.md
@@ -202,7 +210,10 @@ def _format_blocks(idx: int, blocks: list[dict], shapes: list[dict]) -> list[str
             tnum = blk.get("table_num")
             rows = blk.get("rows", 0)
             cols = blk.get("cols", 0)
-            lines.append(f"\n[slide={idx} block=TABLE_SECTION table_num={tnum} rows={rows} cols={cols}]")
+            lines.append(
+                f"\n[slide={idx} block=TABLE_SECTION"
+                f" table_num={tnum} rows={rows} cols={cols}]"
+            )
             tbl = shape_map.get(tnum)
             if tbl and tbl.get("grid"):
                 for r, row in enumerate(tbl["grid"]):
@@ -253,7 +264,10 @@ def _format_answer_key(ans_slides: list[dict]) -> str:
                     num  = sh.get("num")
                     name = sh.get("name", "")
                     grid = sh["grid"]
-                    lines.append(f"\n[slide={idx} shape_num={num} name={name!r} type=table rows={len(grid)}]")
+                    lines.append(
+                        f"\n[slide={idx} shape_num={num} name={name!r}"
+                        f" type=table rows={len(grid)}]"
+                    )
                     for r, row in enumerate(grid):
                         lines.append(f"  row{r}: {[str(v or '') for v in row]}")
                 elif sh["type"] == "text" and sh.get("text"):
@@ -412,7 +426,11 @@ def read_template(state: AgentState) -> dict:
                                and answer_key_path and os.path.exists(answer_key_path))
                 if missing_ids or need_charts:
                     try:
-                        ak_scan = scan_pptx(answer_key_path, read_values=True) if answer_key_path and os.path.exists(answer_key_path) else []
+                        ak_scan = (
+                            scan_pptx(answer_key_path, read_values=True)
+                            if answer_key_path and os.path.exists(answer_key_path)
+                            else []
+                        )
                         tmpl_scan = scan_pptx(template_path, read_values=False)
                         if missing_ids:
                             _enrich_shape_ids(mapping, ak_scan, tmpl_scan)
@@ -549,9 +567,20 @@ def read_template(state: AgentState) -> dict:
     if _SKILLS:
         placeholders = scan_placeholders(template_slides)
         result = check_mapping_completeness(placeholders, mapping)
-        table_cov = f"{result.table_mapped}/{result.table_total} ({result.table_mapped/result.table_total:.0%})" if result.table_total else "N/A"
-        text_cov  = f"{result.text_mapped}/{result.text_total} ({result.text_mapped/result.text_total:.0%})" if result.text_total else "N/A"
-        print(f"[Reader] [Skill 2] Table: {table_cov} | Text: {text_cov} | Chart: {result.chart_total}개")
+        table_cov = (
+            f"{result.table_mapped}/{result.table_total}"
+            f" ({result.table_mapped/result.table_total:.0%})"
+            if result.table_total else "N/A"
+        )
+        text_cov = (
+            f"{result.text_mapped}/{result.text_total}"
+            f" ({result.text_mapped/result.text_total:.0%})"
+            if result.text_total else "N/A"
+        )
+        print(
+            f"[Reader] [Skill 2] Table: {table_cov}"
+            f" | Text: {text_cov} | Chart: {result.chart_total}개"
+        )
         if not result.passed:
             fail_msg = (f"[Skill 2] FAIL: coverage={result.coverage:.1%} < 95% "
                         f"(미매핑 {len(result.unmapped)}개)")

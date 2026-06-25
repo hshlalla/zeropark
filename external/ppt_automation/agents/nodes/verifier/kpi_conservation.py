@@ -36,9 +36,15 @@ def check_conservation(kpi_counts: dict) -> tuple[bool, list[str]]:
 
     # 채우기 손실 = 진짜 보존 위반
     if reader is not None and fin is not None and fin != reader:
-        errors.append(f"PIPELINE FAIL: filler_in={fin} ≠ reader={reader} (매핑 셀 손실 {reader - fin}개)")
+        errors.append(
+            f"PIPELINE FAIL: filler_in={fin} ≠ reader={reader}"
+            f" (매핑 셀 손실 {reader - fin}개)"
+        )
     if fin is not None and fout is not None and fout != fin:
-        errors.append(f"PIPELINE FAIL: filler_out={fout} ≠ filler_in={fin} (쓰기 실패 {fin - fout}개)")
+        errors.append(
+            f"PIPELINE FAIL: filler_out={fout} ≠ filler_in={fin}"
+            f" (쓰기 실패 {fin - fout}개)"
+        )
 
     # calculator가 reader를 초과하면 손상 (불가능한 상황)
     if reader is not None and calc is not None and calc > reader:

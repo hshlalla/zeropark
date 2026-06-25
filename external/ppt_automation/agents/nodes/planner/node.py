@@ -20,13 +20,13 @@ import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from domain.config import FILE_KEYS
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agents.state import AgentState
 from agents.models import KeySpecMapping, SlideMapping, VerificationResult
-from agents.utils import load_contract, combined_hash, PLANS_DIR, get_anthropic_api_key
-from domain.config import FILE_KEYS
+from agents.state import AgentState
+from agents.utils import PLANS_DIR, combined_hash, get_anthropic_api_key, load_contract
 
 _CONTRACT = load_contract("planner")
 
@@ -56,7 +56,8 @@ def _schema_summary_for_planner(data_schema: dict) -> str:
 
     def _to_df_key(filename: str) -> str:
         for prefix, key in FILE_KEYS.items():
-            if filename.startswith(key) or filename.startswith(key + " ") or filename.startswith(key + "."):
+            if (filename.startswith(key) or filename.startswith(key + " ")
+                    or filename.startswith(key + ".")):
                 return prefix
         # 역방향: 파일명 접두사로 역조회
         for file_prefix, df_key in reverse_keys.items():
@@ -114,11 +115,17 @@ def _run_batches(llm, batches: list[list[str]], key_line_map: dict[str, str],
             done += 1
             if specs is None:
                 unresolved_all.extend(unres)
-                print(f"[Planner]   {label} {done}/{total}: ✗ 실패({err}) → {len(unres)}개 unresolved")
+                print(
+                    f"[Planner]   {label} {done}/{total}: "
+                    f"✗ 실패({err}) → {len(unres)}개 unresolved"
+                )
             else:
                 specs_all.extend(specs)
                 unresolved_all.extend(unres)
-                print(f"[Planner]   {label} {done}/{total}: +{len(specs)}개 (누적 {len(specs_all)})")
+                print(
+                    f"[Planner]   {label} {done}/{total}: "
+                    f"+{len(specs)}개 (누적 {len(specs_all)})"
+                )
     return specs_all, unresolved_all
 
 
@@ -198,15 +205,20 @@ def _build_evolution_context(prev_plan: KeySpecMapping,
         if prev_spec:
             lines.append(f"  - 직전 명세: {_spec_one_line(prev_spec)}")
         else:
-            lines.append("  - 직전 명세: (없음 → 이 key는 직전 계획에서 누락됐다. 새로 작성하라)")
+            lines.append(
+                "  - 직전 명세: (없음 → 이 key는 직전 계획에서 누락됐다. 새로 작성하라)"
+            )
         for iss in issues[:3]:
             lines.append(f"  - 실패: expected={iss.expected!r} actual={iss.actual!r} "
                          f"cause={iss.root_cause}")
         causes = {i.root_cause for i in issues}
         if "missing_value" in causes:
-            lines.append("  - 진단: actual이 비어있음 → 필터 값이 데이터에 없거나"
-                         "(예: country/플랫폼 코드 불일치), df_key 또는 분자/분모 컬럼이 틀렸을 가능성. "
-                         "스키마의 unique_values를 다시 확인하라.")
+            lines.append(
+                "  - 진단: actual이 비어있음 → 필터 값이 데이터에 없거나"
+                "(예: country/플랫폼 코드 불일치), "
+                "df_key 또는 분자/분모 컬럼이 틀렸을 가능성. "
+                "스키마의 unique_values를 다시 확인하라."
+            )
         if "wrong_value" in causes:
             lines.append("  - 진단: 값이 어긋남 → 분자/분모 컬럼, 필터 범위, "
                          "scale(100 vs 1), period(cur/mom/ratio/diff)를 재검토하라.")
@@ -225,16 +237,19 @@ def _build_fit_plan(mapping: SlideMapping, answer_key_path: str, cache_dir: str,
       · fit family(rv/rs)                     → 정답지 값 target으로 식 역산
       · ranking/chart/unsupported            → 미해결로 보고
     """
-    import pandas as pd
     from collections import defaultdict
-    from core.predefined.pptx_scanner import scan_pptx_cached as scan_pptx
+
+    import pandas as pd
+    from core.predefined.formula_critic import FormulaCritic
     from core.predefined.formula_fit import build_targets, prepare
-    from core.predefined.metric_resolver import resolve, entity_filters
-    from domain.metric_catalog import build_keyspec
+
     # ── 역할별 컴포넌트 (단일 책임) ───────────────────────────────────
     from core.predefined.formula_synthesizer import FormulaSynthesizer
     from core.predefined.formula_validator import FormulaValidator
-    from core.predefined.formula_critic import FormulaCritic
+    from core.predefined.metric_resolver import entity_filters, resolve
+    from core.predefined.pptx_scanner import scan_pptx_cached as scan_pptx
+    from domain.metric_catalog import build_keyspec
+
     from agents.models import KeySpec
 
     synthesizer = FormulaSynthesizer()   # 공식 후보 생성
@@ -312,7 +327,11 @@ def _build_fit_plan(mapping: SlideMapping, answer_key_path: str, cache_dir: str,
             return None, 0.0, f"Critic 탈락: {c_reason}"
         conf = max(0.0, 1.0 - best_err) * penalty
         if conf < _CONF_THRESHOLD:
-            return None, conf, f"confidence {conf:.2f} < {_CONF_THRESHOLD} (오차 {best_err:.0%}, {c_reason})"
+            return (
+                None, conf,
+                f"confidence {conf:.2f} < {_CONF_THRESHOLD} "
+                f"(오차 {best_err:.0%}, {c_reason})"
+            )
         spec = KeySpec(key=key, df_key=best["df_key"], value_col=best["num"],
                        denom_col=best["denom"], filters=entity_filters(mid),
                        period=mid.period, scale=best["scale"],
@@ -354,16 +373,23 @@ def _build_fit_plan(mapping: SlideMapping, answer_key_path: str, cache_dir: str,
             by_prefix[mid.metric_family][0] += 1
             _decide(key, mid, sdef,
                     analysis=analysis,
-                    plan_s=f"카탈로그 ratio: df={spec.df_key} 분자={spec.value_col} 분모={spec.denom_col} "
-                           f"필터={spec.filters} period={spec.period}",
+                    plan_s=(
+                        f"카탈로그 ratio: df={spec.df_key} 분자={spec.value_col} "
+                        f"분모={spec.denom_col} 필터={spec.filters} period={spec.period}"
+                    ),
                     action=f"명시정의 채택 ({spec.note or 'catalog'})",
                     conf=0.95, resolved=True)
-            mem_metrics.append((key, mid.metric_family,
-                                {"num": spec.value_col, "denom": spec.denom_col,
-                                 "filters": spec.filters, "period": spec.period, "scale": spec.scale},
-                                0.95, "catalog 명시정의"))
-            mem_attempts.append((key, {"num": spec.value_col, "denom": spec.denom_col, "scale": spec.scale},
-                                 None, info["target"] if info else None, None, "accepted", "catalog"))
+            mem_metrics.append((
+                key, mid.metric_family,
+                {"num": spec.value_col, "denom": spec.denom_col,
+                 "filters": spec.filters, "period": spec.period, "scale": spec.scale},
+                0.95, "catalog 명시정의",
+            ))
+            mem_attempts.append((
+                key,
+                {"num": spec.value_col, "denom": spec.denom_col, "scale": spec.scale},
+                None, info["target"] if info else None, None, "accepted", "catalog",
+            ))
         elif reason == "fit_required":
             # rv/rs — Synthesizer → Critic → Validator 역할 오케스트레이션
             dk = sdef.get("dataset")
@@ -375,14 +401,22 @@ def _build_fit_plan(mapping: SlideMapping, answer_key_path: str, cache_dir: str,
                 _decide(key, mid, sdef,
                         analysis=analysis,
                         plan_s=f"df={dk} 후보 생성→의미비판→정답지 교차검증",
-                        action=f"채택: 분자={fspec.value_col} 분모={fspec.denom_col} scale={fspec.scale} ({fspec.note})",
+                        action=(
+                            f"채택: 분자={fspec.value_col} 분모={fspec.denom_col} "
+                            f"scale={fspec.scale} ({fspec.note})"
+                        ),
                         conf=conf, resolved=True)
-                mem_metrics.append((key, mid.metric_family,
-                                    {"num": fspec.value_col, "denom": fspec.denom_col,
-                                     "filters": fspec.filters, "period": fspec.period, "scale": fspec.scale},
-                                    conf, fspec.note))
-                mem_attempts.append((key, {"num": fspec.value_col, "denom": fspec.denom_col, "scale": fspec.scale},
-                                     None, info["target"] if info else None, None, "accepted", "fit"))
+                mem_metrics.append((
+                    key, mid.metric_family,
+                    {"num": fspec.value_col, "denom": fspec.denom_col,
+                     "filters": fspec.filters, "period": fspec.period, "scale": fspec.scale},
+                    conf, fspec.note,
+                ))
+                mem_attempts.append((
+                    key,
+                    {"num": fspec.value_col, "denom": fspec.denom_col, "scale": fspec.scale},
+                    None, info["target"] if info else None, None, "accepted", "fit",
+                ))
             else:
                 unresolved.append(key)
                 reasons[key] = sreason
@@ -428,12 +462,12 @@ def _resynthesize_failed(prev_plan: KeySpecMapping, failure_reports: list,
     반환: (새 KeySpecMapping, 교체된 key 수)
     """
     import pandas as pd
-    from core.predefined.formula_fit import prepare, parse_value
-    from core.predefined.metric_resolver import resolve, entity_filters
-    from domain.metric_catalog import get_strategy
+    from core.predefined.formula_critic import FormulaCritic
+    from core.predefined.formula_fit import parse_value, prepare
     from core.predefined.formula_synthesizer import FormulaSynthesizer
     from core.predefined.formula_validator import FormulaValidator
-    from core.predefined.formula_critic import FormulaCritic
+    from core.predefined.metric_resolver import entity_filters, resolve
+    from domain.metric_catalog import get_strategy
 
     synth, val, crit = FormulaSynthesizer(), FormulaValidator(), FormulaCritic()
     # FailureReport의 expected를 target으로 사용
@@ -446,6 +480,7 @@ def _resynthesize_failed(prev_plan: KeySpecMapping, failure_reports: list,
         return _dfs.get(dk)
 
     from core.predefined.shared_memory import get_memory
+
     from agents.models import KeySpec
     mem = get_memory()
 
@@ -495,7 +530,10 @@ def _resynthesize_failed(prev_plan: KeySpecMapping, failure_reports: list,
                                "denom": best["denom"], "scale": best["scale"]},
                               (1 - err) * pen, f"evolve err={err:.0%}")
             replaced += 1
-    return KeySpecMapping(specs=list(merged.values()), unresolved=list(prev_plan.unresolved)), replaced
+    return (
+        KeySpecMapping(specs=list(merged.values()), unresolved=list(prev_plan.unresolved)),
+        replaced,
+    )
 
 
 def _format_unfit_report(report: dict) -> str:
@@ -578,7 +616,10 @@ def plan_formulas(state: AgentState) -> dict:
         try:
             with open(cache_path, encoding="utf-8") as f:
                 prev = KeySpecMapping(**json.load(f))
-            print(f"[Planner] 🧬 FailureReport {len(failure_reports)}건 수신 — 실패 key 재합성(wider)")
+            print(
+                f"[Planner] 🧬 FailureReport {len(failure_reports)}건 수신 "
+                f"— 실패 key 재합성(wider)"
+            )
             evolved, replaced = _resynthesize_failed(
                 prev, failure_reports, answer_key_path, cache_dir, cur_date, prv_date)
             with open(cache_path, "w", encoding="utf-8") as f:
@@ -642,12 +683,20 @@ def plan_formulas(state: AgentState) -> dict:
             if i.root_cause in ("wrong_value", "missing_value") and i.value_key
         })
         batches = _chunks(fail_keys)
-        print(f"[Planner] 🧬 자아 진화 — 실패 {len(fail_keys)}개 key 재생성 "
-              f"({len(batches)}개 배치, 병렬 {_MAX_PARALLEL})")
+        print(
+            f"[Planner] 🧬 자아 진화 — 실패 {len(fail_keys)}개 key 재생성 "
+            f"({len(batches)}개 배치, 병렬 {_MAX_PARALLEL})"
+        )
+        def _evo_section(b):
+            return _build_evolution_context(prev_plan, ver_result, only_keys=set(b))
+
         specs_new, unresolved_all = _run_batches(
             llm, batches, key_line_map, schema_text, cur_date, prv_date,
-            extra_section_fn=lambda b: _build_evolution_context(prev_plan, ver_result, only_keys=set(b)),
-            instruction="위 실패한 key들의 KeySpec만 새로 작성하라. 특정 불가 키는 unresolved에 추가.",
+            extra_section_fn=_evo_section,
+            instruction=(
+                "위 실패한 key들의 KeySpec만 새로 작성하라. "
+                "특정 불가 키는 unresolved에 추가."
+            ),
             label="진화 배치",
         )
         # 병합: 직전 plan 유지 + 재생성된 key만 교체

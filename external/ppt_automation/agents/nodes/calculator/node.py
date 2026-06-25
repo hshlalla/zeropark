@@ -13,13 +13,19 @@ import os
 import subprocess
 import sys
 
+from core.predefined.formatters import fmt_kval, fmt_mom, fmt_pct, fmt_ratio_val
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from agents.models import CalculatedValue, CalculationResult, KeySpecMapping, SlideMapping
 from agents.state import AgentState
-from agents.models import CalculationResult, CalculatedValue, SlideMapping, KeySpecMapping
-from core.predefined.formatters import fmt_pct, fmt_mom, fmt_kval, fmt_ratio_val
-from agents.utils import spec_cache_hash, CALCULATORS_DIR, load_skills, load_contract, get_anthropic_api_key
+from agents.utils import (
+    CALCULATORS_DIR,
+    get_anthropic_api_key,
+    load_contract,
+    load_skills,
+    spec_cache_hash,
+)
 
 _CONTRACT = load_contract("calculator")
 _SKILLS = load_skills("calculator")
@@ -139,7 +145,10 @@ def _spec_to_text(spec) -> str:
     ]
     if spec.exclude_values:
         lines.append(f"  exclude   : {spec.exclude_values}")
-    lines.append(f"  period    : {spec.period}  (cur=cur_date, prv=prv_date, mom=cur-prv, ratio=cur÷prv, diff=main-base)")
+    lines.append(
+        f"  period    : {spec.period}"
+        "  (cur=cur_date, prv=prv_date, mom=cur-prv, ratio=cur÷prv, diff=main-base)"
+    )
     lines.append(f"  scale     : {spec.scale}")
     if spec.period == "diff":
         lines.append(f"  base_filters: {spec.base_filters}")
@@ -266,7 +275,8 @@ def calculate_kpis(state: AgentState) -> dict:
         # 이후 실행은 재도출 없이 그 파일을 import해 실행한다(raw_data만 바뀌면 같은 식 재사용).
         # 값이 틀리면 '명세(코드)'가 틀린 것 → Planner 자아 진화로 수정(완전 추적 가능).
         from core.predefined.formula_codegen import emit_formula_module, load_formula_module
-        from agents.utils import combined_hash, FORMULAS_DIR
+
+        from agents.utils import FORMULAS_DIR, combined_hash
 
         f_hash = combined_hash(state["template_path"], state.get("answer_key_path"))
         code_path = os.path.join(FORMULAS_DIR, f"formulas_{f_hash}.py")
@@ -303,7 +313,9 @@ def calculate_kpis(state: AgentState) -> dict:
                 f.write(code)
             llm_used = "수정(스키마 추론)"
         elif not os.path.exists(code_path):
-            print(f"[Calculator] KPI 코드 생성 중 ({len(mapping.unique_keys)}개 키, 스키마 추론)...")
+            print(
+                f"[Calculator] KPI 코드 생성 중 ({len(mapping.unique_keys)}개 키, 스키마 추론)..."
+            )
             code = _gen_kpi_code(mapping, data_schema, cur_date, prv_date)
             with open(code_path, "w", encoding="utf-8") as f:
                 f.write(code)
@@ -338,8 +350,8 @@ def calculate_kpis(state: AgentState) -> dict:
             return {
                 "errors": [err],
                 "retry_feedback": (
-                    f"[Calculator 실행 실패] 생성 코드가 {_MAX_EXEC_RETRY}회 모두 실행 오류로 실패했다.\n"
-                    f"마지막 오류:\n{exec_error[:800]}"
+                    f"[Calculator 실행 실패] 생성 코드가 {_MAX_EXEC_RETRY}회 모두"
+                    f" 실행 오류로 실패했다.\n마지막 오류:\n{exec_error[:800]}"
                 ),
                 "pending_gate": "after_calc",
                 "messages": [AIMessage(content=err, name="Calculator")],
@@ -365,7 +377,7 @@ def calculate_kpis(state: AgentState) -> dict:
     if chart_targets:
         try:
             import pandas as pd
-            from core.predefined.chart_fill import fit_chart_targets, compute_chart_series
+            from core.predefined.chart_fill import compute_chart_series, fit_chart_targets
             from core.predefined.formula_fit import prepare
             from domain.config import METRIC_PREFIX_TO_DATASET
             dfs: dict = {}
@@ -394,8 +406,6 @@ def calculate_kpis(state: AgentState) -> dict:
             )
             calc_result.chart_series.update(chart_series)
             resolved_n = sum(1 for ct in chart_targets if ct.resolved)
-            from_ans = sum(1 for k in chart_series if k not in
-                           {ct.value_key for ct in chart_targets if ct.resolved})
             print(f"[Calculator] 차트 계열 계산: {len(chart_series)}/{len(chart_targets)}개 "
                   f"(데이터 기반 {resolved_n}개, 정답지 fallback {len(chart_series)-resolved_n}개)")
         except Exception as e:

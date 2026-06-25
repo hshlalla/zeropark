@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ── Manager: Gate 통과 기록 ───────────────────────────────────────────────────
 
 class GateResult(BaseModel):
     """Manager 게이트 하나의 통과/실패 기록."""
-    gate: str          # "after_data" | "after_mapping" | "after_plan" | "after_calc" | "after_fill" | "after_verify"
+    # "after_data" | "after_mapping" | "after_plan" | "after_calc" | "after_fill" | "after_verify"
+    gate: str
     passed: bool
     details: str       # 통과 기준과 실제 측정값
     route_to: str      # 다음 노드 이름 또는 "__end__"
@@ -136,7 +137,8 @@ class ChartTarget(BaseModel):
     차트는 표/텍스트와 달리 (카테고리 × 계열) 구조라 별도 타깃으로 표현한다.
     category_kind:
       "time"     → 카테고리가 월(시계열). 각 카테고리 = 해당 월의 메트릭.
-      "category" → 카테고리가 세그먼트(플랫폼/intent/채널 등). 각 카테고리 = 그 값으로 필터한 메트릭.
+      "category" → 카테고리가 세그먼트(플랫폼/intent/채널 등).
+                   각 카테고리 = 그 값으로 필터한 메트릭.
     """
     slide_idx: int
     shape_num: int
@@ -248,13 +250,19 @@ class VerificationResult(BaseModel):
     def summary(self) -> str:
         pct = self.ok_count / self.total_checked * 100 if self.total_checked else 0
         status = "✓ 통과" if self.passed else f"✗ 실패 → {self.route_to}"
-        return f"{status} | {self.ok_count}/{self.total_checked} ({pct:.0f}%) | 이슈 {len(self.issues)}개"
+        return (
+            f"{status} | {self.ok_count}/{self.total_checked}"
+            f" ({pct:.0f}%) | 이슈 {len(self.issues)}개"
+        )
 
     def calc_issues(self) -> list[VerificationIssue]:
         return [i for i in self.issues if i.root_cause == "wrong_value"]
 
     def filler_issues(self) -> list[VerificationIssue]:
-        return [i for i in self.issues if i.root_cause in ("wrong_cell", "format_error", "missing_value")]
+        return [
+            i for i in self.issues
+            if i.root_cause in ("wrong_cell", "format_error", "missing_value")
+        ]
 
 
 # ── 레거시 (호환성) ────────────────────────────────────────────────────────────

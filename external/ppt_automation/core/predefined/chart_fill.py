@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import os
 import re
-import pandas as pd
 
+import pandas as pd
 from agents.models import ChartTarget
-from core.predefined.formula_fit import fit_key, prepare
-from core.predefined.formula_engine import _aggregate
 from domain.config import METRIC_PREFIX_TO_DATASET
+
+from core.predefined.formula_engine import _aggregate
+from core.predefined.formula_fit import fit_key, prepare
 
 _MON = {m: i + 1 for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun",
@@ -269,15 +270,27 @@ def compute_chart_series(
             if ct.category_kind == "time":
                 for ym in months:
                     d = _month_to_date(df, ym)
-                    v = _agg_val(df, ct.value_col, ct.denom_col, ct.filters, d, ct.scale) if d else None
+                    v = (
+                        _agg_val(df, ct.value_col, ct.denom_col, ct.filters, d, ct.scale)
+                        if d else None
+                    )
                     out_vals.append(v)
             else:
                 dim = _match_dimension(ct.categories, dfs)
                 cmap = dim[2] if dim else {}
-                sdate = _month_to_date(df, (parse_months([ct.series_name]) or [None])[0]) or cur_date
+                sdate = (
+                    _month_to_date(df, (parse_months([ct.series_name]) or [None])[0])
+                    or cur_date
+                )
                 for cat in ct.categories:
                     dv = cmap.get(cat)
-                    v = _agg_val(df, ct.value_col, ct.denom_col, {ct.category_dim: dv}, sdate, ct.scale) if dv else None
+                    v = (
+                        _agg_val(
+                            df, ct.value_col, ct.denom_col,
+                            {ct.category_dim: dv}, sdate, ct.scale,
+                        )
+                        if dv else None
+                    )
                     out_vals.append(v)
 
             # answer_slides가 있으면 다중 포인트 교차 검증 후 fallback 결정
@@ -364,15 +377,27 @@ def build_and_fill_charts(prs, answer_slides: list[dict], data_dir: str,
                     if ct.category_kind == "time":
                         for i, ym in enumerate(months):
                             d = _month_to_date(df, ym)
-                            v = _agg_val(df, ct.value_col, ct.denom_col, ct.filters, d, ct.scale) if d else None
+                            v = (
+                                _agg_val(df, ct.value_col, ct.denom_col, ct.filters, d, ct.scale)
+                                if d else None
+                            )
                             out_vals.append(v)
                     else:
                         dim = _match_dimension(cats, dfs)
                         cmap = dim[2] if dim else {}
-                        sdate = _month_to_date(df, (parse_months([sname]) or [None])[0]) or cur_date
+                        sdate = (
+                            _month_to_date(df, (parse_months([sname]) or [None])[0])
+                            or cur_date
+                        )
                         for i, cat in enumerate(cats):
                             dv = cmap.get(cat)
-                            v = _agg_val(df, ct.value_col, ct.denom_col, {ct.category_dim: dv}, sdate, ct.scale) if dv else None
+                            v = (
+                                _agg_val(
+                                    df, ct.value_col, ct.denom_col,
+                                    {ct.category_dim: dv}, sdate, ct.scale,
+                                )
+                                if dv else None
+                            )
                             out_vals.append(v)
                     chart_series_out.append((sname, out_vals))
                 # fit 실패한 계열은 건너뜀 (정답지 복사 fallback 없음)

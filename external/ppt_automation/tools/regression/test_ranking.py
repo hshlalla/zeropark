@@ -5,7 +5,6 @@
 import unittest
 
 import pandas as pd
-
 from core.ranking import _top_domains_prev
 
 

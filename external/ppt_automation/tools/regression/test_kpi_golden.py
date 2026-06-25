@@ -8,15 +8,17 @@ parquet(.data_cache/)가 없거나 RUN_GOLDEN 미설정이면 자동 skip:
     RUN_GOLDEN=1 python -m unittest discover -s tools/regression -t .
 """
 import os
-import unittest
 
 # ── 프로젝트 루트를 sys.path에 추가 ──────────────────────────────────────────
 import sys
+import unittest
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from agents.nodes.data_analyzer import _cache_dir_for as _cdf
+from agents.nodes.data_analyzer import _cache_dir_for as _cdf  # noqa: E402
+
 _RAW_DATA_DIR = os.path.join(_ROOT, "raw_data")
 _CACHE_DIR = _cdf(_RAW_DATA_DIR)
 
@@ -46,8 +48,8 @@ class KpiGoldenTest(unittest.TestCase):
         cls.CUR = dates[-1]
         cls.PRV = dates[-2] if len(dates) >= 2 else dates[-1]
 
-        from core.kpi_engine import _load, _agg
         from agents.models import KeySpec
+        from core.kpi_engine import _agg, _load
         cls._load = staticmethod(_load)
         cls._agg  = staticmethod(_agg)
         cls.KeySpec = KeySpec

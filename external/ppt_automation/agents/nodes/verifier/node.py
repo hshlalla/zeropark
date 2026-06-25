@@ -8,20 +8,24 @@ from __future__ import annotations
 import os
 import re
 
+from core.predefined.pptx_scanner import read_cell, read_text_shape
+from domain.config import TOLERANCE_MOM, TOLERANCE_OTHER, TOLERANCE_PCT
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pptx import Presentation
 
-from agents.state import AgentState
 from agents.models import (
-    VerificationResult, VerificationIssue,
-    SlideMapping, ValidationIssue, FailureReport,
+    FailureReport,
+    SlideMapping,
+    ValidationIssue,
+    VerificationIssue,
+    VerificationResult,
 )
-from core.predefined.pptx_scanner import read_cell, read_text_shape
-from .kpi_conservation import check_conservation, print_conservation_report
-from agents.utils import load_contract, get_anthropic_api_key
 from agents.nodes.manager import HARD_ITERATION_LIMIT
-from domain.config import TOLERANCE_PCT, TOLERANCE_MOM, TOLERANCE_OTHER
+from agents.state import AgentState
+from agents.utils import get_anthropic_api_key, load_contract
+
+from .kpi_conservation import check_conservation, print_conservation_report
 
 _CONTRACT = load_contract("verifier")   # agents/contracts/verifier.md
 
@@ -95,7 +99,8 @@ def _suspected_causes(expected: str, actual: str) -> list[str]:
     seen, out = set(), []
     for c in causes:
         if c not in seen:
-            seen.add(c); out.append(c)
+            seen.add(c)
+            out.append(c)
     return out
 
 
@@ -123,11 +128,18 @@ def _gen_feedback(issues: list[VerificationIssue], route_to: str) -> str:
     if len(issues) > 15:
         issues_text += f"\n  ... 외 {len(issues) - 15}개"
 
-    agent = "Calculator (계산식/필터 수정)" if route_to == "calculator" else "Filler (셀 위치/포맷 수정)"
+    agent = (
+        "Calculator (계산식/필터 수정)"
+        if route_to == "calculator"
+        else "Filler (셀 위치/포맷 수정)"
+    )
     try:
         resp = llm.invoke([
             SystemMessage(content=_CONTRACT),
-            HumanMessage(content=f"## 불일치 목록\n{issues_text}\n\n## 라우팅: {agent}\n\n구체적 수정 지시를 3-5줄로 작성하세요."),
+            HumanMessage(content=(
+                f"## 불일치 목록\n{issues_text}\n\n"
+                f"## 라우팅: {agent}\n\n구체적 수정 지시를 3-5줄로 작성하세요."
+            )),
         ])
         return resp.content.strip()
     except Exception:
@@ -174,7 +186,9 @@ def verify_output(state: AgentState) -> dict:
 
     # ── SlideMapping 없음 → 검증 불가 ────────────────────────────────
     if not mapping or not mapping.targets:
-        result = VerificationResult(passed=True, route_to="end", feedback="SlideMapping 없음 — 검증 건너뜀")
+        result = VerificationResult(
+            passed=True, route_to="end", feedback="SlideMapping 없음 — 검증 건너뜀"
+        )
         return {
             "verification_result": result,
             "pending_gate": "after_verify",
@@ -183,7 +197,9 @@ def verify_output(state: AgentState) -> dict:
 
     # ── 정답지 없음 → 검증 건너뜀 ────────────────────────────────────
     if not answer_key_path or not os.path.exists(answer_key_path):
-        result = VerificationResult(passed=True, route_to="end", feedback="정답지 없음 — 검증 건너뜀")
+        result = VerificationResult(
+            passed=True, route_to="end", feedback="정답지 없음 — 검증 건너뜀"
+        )
         return {
             "verification_result": result,
             "pending_gate": "after_verify",
@@ -220,7 +236,10 @@ def verify_output(state: AgentState) -> dict:
                     if vv and all(v in (0, None) for v in vv):
                         zero_charts.append(f"slide={zi} {zsh.name}")
         if zero_charts:
-            print(f"[Verifier] ⚠ 미채움 차트 {len(zero_charts)}개 (모든 계열값 0): {zero_charts[:5]}")
+            print(
+                f"[Verifier] ⚠ 미채움 차트 {len(zero_charts)}개"
+                f" (모든 계열값 0): {zero_charts[:5]}"
+            )
     except Exception:
         zero_charts = []
 
@@ -263,13 +282,22 @@ def verify_output(state: AgentState) -> dict:
         else:
             cause = _infer_root_cause(ans_val, out_val)
             if cause == "wrong_value":
-                suggestion = f"key={t.value_key!r}: 계산식/필터 재확인 (expected={ans_val!r} actual={out_val!r})"
+                suggestion = (
+                    f"key={t.value_key!r}: 계산식/필터 재확인"
+                    f" (expected={ans_val!r} actual={out_val!r})"
+                )
             elif cause == "format_error":
-                suggestion = f"key={t.value_key!r}: 포맷 수정 (expected={ans_val!r} actual={out_val!r})"
+                suggestion = (
+                    f"key={t.value_key!r}: 포맷 수정"
+                    f" (expected={ans_val!r} actual={out_val!r})"
+                )
             elif cause == "missing_value":
                 suggestion = f"slide={t.slide_idx} shape={t.shape_num} [{t.row},{t.col}] 값 누락"
             else:
-                suggestion = f"slide={t.slide_idx} shape={t.shape_num} [{t.row},{t.col}] 셀 위치 확인"
+                suggestion = (
+                    f"slide={t.slide_idx} shape={t.shape_num}"
+                    f" [{t.row},{t.col}] 셀 위치 확인"
+                )
 
             issues.append(VerificationIssue(
                 slide_idx=t.slide_idx, shape_num=t.shape_num,
@@ -278,7 +306,8 @@ def verify_output(state: AgentState) -> dict:
                 root_cause=cause, suggestion=suggestion,
             ))
             # 구조화 FailureReport (계산 오류 key만 — Planner 재합성 입력)
-            if cause in ("wrong_value", "missing_value") and t.value_key and t.value_key not in failure_reports:
+            if (cause in ("wrong_value", "missing_value")
+                    and t.value_key and t.value_key not in failure_reports):
                 failure_reports[t.value_key] = FailureReport(
                     key=t.value_key, expected=ans_val, actual=out_val,
                     suspected_causes=_suspected_causes(ans_val, out_val),

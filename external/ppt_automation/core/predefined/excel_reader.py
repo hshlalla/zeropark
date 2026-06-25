@@ -1,9 +1,10 @@
 """excel_reader.py — Excel/CSV 원시 데이터 스키마 분석 + 샘플 집계."""
 from __future__ import annotations
-import os
-import pandas as pd
 
-from domain.config import FILE_KEYS, CATEGORICAL_COLUMNS
+import os
+
+import pandas as pd
+from domain.config import CATEGORICAL_COLUMNS, FILE_KEYS
 
 
 def load_file(path: str, nrows: int | None = None) -> pd.DataFrame:

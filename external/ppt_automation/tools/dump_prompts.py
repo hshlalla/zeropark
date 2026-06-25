@@ -22,7 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import build_report  # noqa: E402
 from geo_report import config  # noqa: E402
 from geo_report.data.context import ReportContext  # noqa: E402
-from geo_report.insights import core as insights, governing  # noqa: E402
+from geo_report.insights import core as insights  # noqa: E402
+from geo_report.insights import governing
 from geo_report.insights import prompts as P  # noqa: E402
 
 
@@ -42,7 +43,8 @@ def _rule_name(rule: str) -> str:
 
 
 def _fit_kind(fit) -> str:
-    return {"shape": "텍스트박스", "cell": "표 셀(단일)", "cells": "표 셀(묶음)"}.get(fit[0], fit[0])
+    kinds = {"shape": "텍스트박스", "cell": "표 셀(단일)", "cells": "표 셀(묶음)"}
+    return kinds.get(fit[0], fit[0])
 
 
 def build_dump() -> str:
@@ -60,11 +62,15 @@ def build_dump() -> str:
             insights._reground_summary_job(prs, j)
 
     out = []
-    out.append(f"# 인사이트 프롬프트 덤프 (기준월 {ctx.cur} / 전월 {ctx.prv})\n")
+    out.append(
+        f"# 인사이트 프롬프트 덤프 (기준월 {ctx.cur} / 전월 {ctx.prv})\n"
+    )
     out.append(f"- 거버닝 예시 사용: {gov.available} · 인사이트 타깃(job) {len(jobs)}개\n")
     out.append("> LLM 에 실제 전송되는 system/user 프롬프트를 그대로 재현한 것(생성 호출 없음).\n")
-    out.append("> 주의: 3~5 요약은 '완성된 7~27 상세' 를 grounding 으로 쓰는데, 이 덤프는 LLM 미호출이라\n"
-               "> 상세(7~27)의 '생성된 인사이트 문장'은 비어 있고 제목·KPI 값만 채워진 상태로 표시된다.\n")
+    out.append(
+        "> 주의: 3~5 요약은 '완성된 7~27 상세' 를 grounding 으로 쓰는데, 이 덤프는 LLM 미호출이라\n"
+        "> 상세(7~27)의 '생성된 인사이트 문장'은 비어 있고 제목·KPI 값만 채워진 상태로 표시된다.\n"
+    )
 
     # 슬라이드(idx)별로 묶어 출력
     by_idx: dict[int, list] = {}
@@ -100,7 +106,10 @@ def build_dump() -> str:
 
 
 def main():
-    out_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(config.BASE_DIR, "docs", "prompts_dump.md")
+    out_path = (
+        sys.argv[1] if len(sys.argv) > 1
+        else os.path.join(config.BASE_DIR, "docs", "prompts_dump.md")
+    )
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     text = build_dump()
     with open(out_path, "w", encoding="utf-8") as f:

@@ -60,12 +60,15 @@ def main() -> None:
     raw_data_dir = os.path.join(BASE_DIR, args.raw_data)
 
     print(f"· 템플릿  : {os.path.basename(template_path)}")
-    print(f"· 정답지  : {os.path.basename(answer_key_path) if answer_key_path else '없음 (집계 재계산으로 검증)'}")
+    ans_label = (
+        os.path.basename(answer_key_path) if answer_key_path else "없음 (집계 재계산으로 검증)"
+    )
+    print(f"· 정답지  : {ans_label}")
     print(f"· 데이터  : {raw_data_dir}")
 
     # ── 재생성 플래그: 해당 템플릿+정답지의 모든 캐시 파일 삭제 ──────────────
     if args.regenerate:
-        from agents.utils import template_hash, MAPPINGS_DIR, CALCULATORS_DIR, PLANS_DIR
+        from agents.utils import CALCULATORS_DIR, MAPPINGS_DIR, PLANS_DIR, template_hash
         t_hash = template_hash(template_path)
         deleted = []
         # SlideMapping 캐시 (템플릿 해시 기반 — 정답지와 무관)
@@ -166,7 +169,10 @@ def main() -> None:
         if ver.issues:
             print(f"  피드백: {ver.feedback[:200]}")
             for iss in ver.issues[:5]:
-                print(f"  • {iss.label()} [{iss.root_cause}] expected={iss.expected!r} actual={iss.actual!r}")
+                print(
+                    f"  • {iss.label()} [{iss.root_cause}]"
+                    f" expected={iss.expected!r} actual={iss.actual!r}"
+                )
             if len(ver.issues) > 5:
                 print(f"  ... 외 {len(ver.issues)-5}개")
     elif final.get("fill_report"):

@@ -14,17 +14,18 @@ from __future__ import annotations
 
 from operator import add
 from typing import Annotated, Optional
-from typing_extensions import TypedDict
+
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+from typing_extensions import TypedDict
 
 from agents.models import (
-    SlideMapping,
     CalculationResult,
-    VerificationResult,
     FillReport,
-    ValidationIssue,
     KeySpecMapping,
+    SlideMapping,
+    ValidationIssue,
+    VerificationResult,
 )
 
 
@@ -42,8 +43,10 @@ class AgentState(TypedDict):
     data_coverage: Optional[dict]            # dict[str, DatasetCoverage] — Skill 1 출력
 
     # ── Pipeline Skill 0: KPI Conservation (override, 각 노드가 merge) ─
-    kpi_counts: Optional[dict]               # {"reader": N, "calculator": M, "filler_in": K, "filler_out": L}
-    chart_counts: Optional[dict]             # {"chart_total": N, "chart_filled": M, "chart_unfilled": K}
+    # {"reader": N, "calculator": M, "filler_in": K, "filler_out": L}
+    kpi_counts: Optional[dict]
+    # {"chart_total": N, "chart_filled": M, "chart_unfilled": K}
+    chart_counts: Optional[dict]
 
     # ── ① Reader 출력: 좌표 + KPI 키 매핑 (override) ────────────────
     slide_mapping: Optional[SlideMapping]

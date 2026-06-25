@@ -10,13 +10,14 @@ import os
 import re
 
 import pandas as pd
+from core.predefined.excel_reader import _find, get_all_schemas, load_file
+from domain.config import DATE_PRIORITY, FILE_KEYS
 from langchain_core.messages import AIMessage
 
 from agents.state import AgentState
-from core.predefined.excel_reader import get_all_schemas, load_file, _find
 from agents.utils import load_skills
+
 from .kpi_coverage import scan_coverage
-from domain.config import FILE_KEYS, DATE_PRIORITY
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -139,7 +140,10 @@ def analyze_data(state: AgentState) -> dict:
         # ── 3. 날짜 감지 (parquet 전체 기준, 샘플 아님) ───────────────
         all_dates = _all_dates(cache_dir)
         if all_dates:
-            dates = {"cur": all_dates[-1], "prv": all_dates[-2] if len(all_dates) >= 2 else all_dates[-1]}
+            dates = {
+                "cur": all_dates[-1],
+                "prv": all_dates[-2] if len(all_dates) >= 2 else all_dates[-1],
+            }
         else:
             dates = data_schema.get("sample_kpis", {}).get("dates", {})
             print("[DataAnalyzer] 경고: parquet에서 날짜 감지 실패 — 샘플 기반 폴백")
@@ -156,9 +160,15 @@ def analyze_data(state: AgentState) -> dict:
                 prv = max(earlier) if earlier else normalized
                 dates = {"cur": normalized, "prv": prv}
                 normalized_month = normalized
-                print(f"[DataAnalyzer] --month 정규화: {target_month_raw!r} → {normalized} (prv={prv})")
+                print(
+                    f"[DataAnalyzer] --month 정규화: {target_month_raw!r}"
+                    f" → {normalized} (prv={prv})"
+                )
             else:
-                print(f"[DataAnalyzer] 경고: --month {target_month_raw!r} 에 맞는 날짜 없음 — 최신월 사용")
+                print(
+                    f"[DataAnalyzer] 경고: --month {target_month_raw!r}"
+                    " 에 맞는 날짜 없음 — 최신월 사용"
+                )
 
         # sample_kpis는 날짜만 유지 (샘플 KPI 값은 부정확하므로 제거)
         data_schema["sample_kpis"] = {"dates": dates}

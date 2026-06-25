@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from agents.models import PlaceholderLocation, DiscoveryResult, SlideMapping
+from agents.models import DiscoveryResult, PlaceholderLocation, SlideMapping
 
 # ── Placeholder 탐지 패턴 ────────────────────────────────────────────────────
 

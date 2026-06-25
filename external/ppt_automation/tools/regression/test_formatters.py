@@ -6,8 +6,16 @@
 import unittest
 
 from core.predefined.formatters import (
-    DASH, MAX_DECIMALS, _adaptive_decimals,
-    fmt_kval, fmt_mom, fmt_mom_paren, fmt_pct, fmt_ratio, frac, mom,
+    DASH,
+    MAX_DECIMALS,
+    _adaptive_decimals,
+    fmt_kval,
+    fmt_mom,
+    fmt_mom_paren,
+    fmt_pct,
+    fmt_ratio,
+    frac,
+    mom,
 )
 
 

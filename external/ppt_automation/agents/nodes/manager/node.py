@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agents.state import AgentState
 from agents.models import GateResult
+from agents.state import AgentState
 
 MAX_RETRIES = 3              # 단일 단계 국소 재시도 소프트 캡
 HARD_ITERATION_LIMIT = 7     # 전역 하드 리밋 — 도달 시 무조건 END + 사람 개입(HITL)
@@ -117,7 +117,10 @@ def _gate_mapping(state: AgentState, retry: int) -> GateResult:
         # 최대 재시도 초과: 경고만 남기고 진행 (완전 차단보다 진행이 낫다)
         return GateResult(
             gate="after_mapping", passed=True, retry_count=retry,
-            details=f"coverage 부족이나 최대 재시도 도달 — 현재 mapping으로 진행 ({len(mapping.targets)}개 셀)",
+            details=(
+                f"coverage 부족이나 최대 재시도 도달 — "
+                f"현재 mapping으로 진행 ({len(mapping.targets)}개 셀)"
+            ),
             route_to="plan_formulas",
         )
 
@@ -331,7 +334,10 @@ def manage_pipeline(state: AgentState) -> dict:
             "retry_count": retry,
             "errors": [hitl],
             "messages": [AIMessage(
-                content=f"⛔ 하드 리밋({HARD_ITERATION_LIMIT}) 도달 — 사람 검토 필요, 파이프라인 종료",
+                content=(
+                    f"⛔ 하드 리밋({HARD_ITERATION_LIMIT}) 도달 — "
+                    f"사람 검토 필요, 파이프라인 종료"
+                ),
                 name="Manager",
             )],
         }

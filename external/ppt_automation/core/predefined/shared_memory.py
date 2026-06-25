@@ -75,8 +75,9 @@ class SharedMemory:
     def upsert_metric(self, metric_id, metric_family, formula, confidence, evidence=""):
         with self._conn() as c:
             c.execute(
-                """INSERT INTO metric_catalog(metric_id, metric_family, formula, confidence, evidence, last_validated_at)
-                   VALUES(?,?,?,?,?,?)
+                """INSERT INTO metric_catalog(
+                     metric_id, metric_family, formula, confidence, evidence, last_validated_at
+                   ) VALUES(?,?,?,?,?,?)
                    ON CONFLICT(metric_id) DO UPDATE SET
                      metric_family=excluded.metric_family, formula=excluded.formula,
                      confidence=excluded.confidence, evidence=excluded.evidence,
@@ -87,7 +88,7 @@ class SharedMemory:
             )
 
     def upsert_metrics_bulk(self, rows: list[tuple]):
-        """rows = [(metric_id, family, formula(dict|str), confidence, evidence), ...] — 1트랜잭션."""
+        """rows = [(metric_id, family, formula(dict|str), confidence, evidence), ...] 1트랜잭션."""
         if not rows:
             return
         ts = _now()
@@ -97,7 +98,8 @@ class SharedMemory:
                 for (mid, fam, f, conf, ev) in rows]
         with self._conn() as c:
             c.executemany(
-                """INSERT INTO metric_catalog(metric_id, metric_family, formula, confidence, evidence, last_validated_at)
+                """INSERT INTO metric_catalog
+                   (metric_id, metric_family, formula, confidence, evidence, last_validated_at)
                    VALUES(?,?,?,?,?,?)
                    ON CONFLICT(metric_id) DO UPDATE SET
                      metric_family=excluded.metric_family, formula=excluded.formula,
@@ -115,7 +117,9 @@ class SharedMemory:
                 for (k, cf, cv, ev, er, st, rs) in rows]
         with self._conn() as c:
             c.executemany(
-                """INSERT INTO formula_attempts(key, candidate_formula, computed_value, expected_value, error, status, reason, ts)
+                """INSERT INTO formula_attempts
+                   (key, candidate_formula, computed_value,
+                    expected_value, error, status, reason, ts)
                    VALUES(?,?,?,?,?,?,?,?)""", data)
 
     def get_metric(self, metric_id) -> dict | None:
@@ -137,7 +141,8 @@ class SharedMemory:
     def register_shape(self, slide_idx, shape_id, shape_type, role, linked_metric_id=""):
         with self._conn() as c:
             c.execute(
-                """INSERT INTO shape_registry(slide_idx, shape_id, shape_type, role, linked_metric_id)
+                """INSERT INTO shape_registry
+                   (slide_idx, shape_id, shape_type, role, linked_metric_id)
                    VALUES(?,?,?,?,?)
                    ON CONFLICT(slide_idx, shape_id) DO UPDATE SET
                      shape_type=excluded.shape_type, role=excluded.role,
@@ -152,17 +157,21 @@ class SharedMemory:
             return
         with self._conn() as c:
             c.executemany(
-                """INSERT INTO shape_registry(slide_idx, shape_id, shape_type, role, linked_metric_id)
+                """INSERT INTO shape_registry
+                   (slide_idx, shape_id, shape_type, role, linked_metric_id)
                    VALUES(?,?,?,?,?)
                    ON CONFLICT(slide_idx, shape_id) DO UPDATE SET
                      shape_type=excluded.shape_type, role=excluded.role,
                      linked_metric_id=excluded.linked_metric_id""", rows)
 
     # ── formula_attempts ──────────────────────────────────────────────
-    def log_attempt(self, key, candidate_formula, computed_value, expected_value, error, status, reason=""):
+    def log_attempt(self, key, candidate_formula, computed_value,
+                    expected_value, error, status, reason=""):
         with self._conn() as c:
             c.execute(
-                """INSERT INTO formula_attempts(key, candidate_formula, computed_value, expected_value, error, status, reason, ts)
+                """INSERT INTO formula_attempts
+                   (key, candidate_formula, computed_value,
+                    expected_value, error, status, reason, ts)
                    VALUES(?,?,?,?,?,?,?,?)""",
                 (key, json.dumps(candidate_formula, ensure_ascii=False)
                  if not isinstance(candidate_formula, str) else candidate_formula,

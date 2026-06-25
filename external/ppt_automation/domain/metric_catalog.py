@@ -82,9 +82,14 @@ _RV_SEGMENT_COLUMNS: dict[str, str] = {
     "other":           "External__Other_Tech_Hardware_Brand_Total__Other_Tech_Hardware_Brand_Total",
     "others":          "External__Others_Total__Others_Total",
     "retailer":        "External__Partnercom__Retailer",
-    "softwaresaas":    "External__Software_Saas_Productivity_Total__Software_Saas_Productivity_Total",
+    "softwaresaas":    (
+        "External__Software_Saas_Productivity_Total__Software_Saas_Productivity_Total"
+    ),
     "refurbretailer":  "External__Refurbished_Retailer_Total__Refurbished_Retailer_Total",
-    "relatedproduct":  "External__Smartphone_Related_Product_and_Service_Total__Smartphone_Related_Product_and_Service_Total",
+    "relatedproduct":  (
+        "External__Smartphone_Related_Product_and_Service_Total"
+        "__Smartphone_Related_Product_and_Service_Total"
+    ),
     # Owned 하위
     "support":         "Owned__Support__Support",
     "pr":              "Owned__PR__Newsroom",
@@ -101,7 +106,9 @@ _RV_SEGMENT_COLUMNS: dict[str, str] = {
     "channel_media":        "External__Media_Total__Media_Total",
     "channel_owned":        "Owned__Owned_Total__Owned_Total",
     "channel_partner":      "External__Partnercom_Total__Partnercom_Total",
-    "channel_otherbrand":   "External__Other_Tech_Hardware_Brand_Total__Other_Tech_Hardware_Brand_Total",
+    "channel_otherbrand":   (
+        "External__Other_Tech_Hardware_Brand_Total__Other_Tech_Hardware_Brand_Total"
+    ),
     "channel_wiki":         "External__Wiki_Total__Wiki_Total",
     "seg_forum":            "External__Forum_Total__Forum_Total",
     "seg_social":           "External__Social_Total__Social_Total",
