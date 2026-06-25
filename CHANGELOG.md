@@ -1,5 +1,6 @@
 0.2.0
 - `zeropark-core` `router.py`에 `ppt_agent` ModePlan 추가 — 프론트엔드 `/modes` API 및 앱 생성 UI에 자동 노출
+- `.gitignore`에 `plans/`, `debug_hang.py` 추가, `qdrant_data/` 트래킹 해제
 
 0.1.0
 - `zeropark-core` Capability 열거형에 `PPT_AGENT` 항목 추가

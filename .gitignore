@@ -55,3 +55,7 @@ artifacts/
 *.db-shm
 *.db-journal
 qdrant_data/
+
+# Internal planning & debug scripts
+plans/
+debug_hang.py
