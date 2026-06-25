@@ -36,9 +36,6 @@ coverage/
 Thumbs.db
 desktop.ini
 
-# OSS design-reference checkouts — not part of the build
-external/
-
 # generated artifacts
 artifacts/
 
