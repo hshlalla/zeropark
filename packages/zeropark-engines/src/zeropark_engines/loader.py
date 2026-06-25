@@ -84,7 +84,10 @@ def build_registry(
     # LLM-backed engines — registered whenever an LLM is configured.
     if llm and llm.get("api_key"):
         llm_client = create_llm_client(
-            llm.get("provider"), llm["api_key"], llm.get("base_url")
+            provider=llm.get("provider"),
+            api_key=llm["api_key"],
+            base_url=llm.get("base_url"),
+            use_local_embeddings=llm.get("use_local_embeddings"),
         )
 
         # Research needs a search backend in addition to the LLM. DeepResearch

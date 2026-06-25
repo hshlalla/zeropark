@@ -428,15 +428,55 @@ class AnthropicLLMClient(BaseLLMClient):
         )
 
 
+class LocalEmbeddingLLMClientWrapper(BaseLLMClient):
+    """Wraps an LLM client to use local sentence-transformers for embeddings."""
+
+    def __init__(self, base_client: BaseLLMClient):
+        self.base_client = base_client
+        self._embedder = None
+
+    def _get_embedder(self):
+        if self._embedder is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            except ImportError:
+                raise ValueError("sentence-transformers is not installed. Install it to use local embeddings.")
+        return self._embedder
+
+    def chat_completion(self, *args, **kwargs) -> ChatResponse:
+        return self.base_client.chat_completion(*args, **kwargs)
+
+    async def achat_completion(self, *args, **kwargs) -> ChatResponse:
+        return await self.base_client.achat_completion(*args, **kwargs)
+
+    async def achat_completion_stream(self, *args, **kwargs) -> AsyncIterator[str]:
+        async for chunk in self.base_client.achat_completion_stream(*args, **kwargs):
+            yield chunk
+
+    def create_embeddings(
+        self, texts: List[str], model: str = "all-MiniLM-L6-v2"
+    ) -> List[List[float]]:
+        embedder = self._get_embedder()
+        return [emb.tolist() for emb in embedder.encode(texts)]
+
+
 def create_llm_client(
     provider: str | None,
     api_key: str,
     base_url: Optional[str] = None,
+    use_local_embeddings: bool = False,
 ) -> BaseLLMClient:
     """Factory used by config-driven wiring. Fails fast on a missing key."""
     if not api_key:
         raise ValueError("LLM api_key is not configured (ZEROPARK_LLM__API_KEY).")
     name = (provider or "openai").lower()
+    
     if name in ("anthropic", "claude"):
-        return AnthropicLLMClient(api_key=api_key, base_url=base_url)
-    return OpenAILLMClient(api_key=api_key, base_url=base_url)
+        client = AnthropicLLMClient(api_key=api_key, base_url=base_url)
+    else:
+        client = OpenAILLMClient(api_key=api_key, base_url=base_url)
+        
+    if use_local_embeddings:
+        return LocalEmbeddingLLMClientWrapper(client)
+    return client

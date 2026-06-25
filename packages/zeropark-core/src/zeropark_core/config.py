@@ -19,6 +19,7 @@ class LLMConfig(BaseModel):
     model: str | None = None
     api_key: str | None = None
     base_url: str | None = None
+    use_local_embeddings: bool = False
     # comma-separated list of models admins may pick per agent
     # (e.g. ZEROPARK_LLM__MODELS=gpt-4o,gpt-4o-mini,gpt-5-nano)
     models: str | None = None
@@ -79,6 +80,7 @@ class ZeroparkSettings(BaseSettings):
     search: SearchConfig = Field(default_factory=SearchConfig)
     branding: BrandingConfig = Field(default_factory=BrandingConfig)
     control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig)
+    semantic_cache_enabled: bool = False
     # capability value -> enabled? Anything not listed defaults to enabled.
     # e.g. ZEROPARK_FEATURES='{"browse": false, "super_agent": true}'
     features: dict[str, bool] = Field(default_factory=dict)
@@ -97,6 +99,7 @@ class ZeroparkSettings(BaseSettings):
             "model": self.llm.model,
             "api_key": self.llm.api_key,
             "base_url": self.llm.base_url,
+            "use_local_embeddings": self.llm.use_local_embeddings,
         }
 
     def search_kwargs(self) -> dict[str, object] | None:
