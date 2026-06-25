@@ -104,6 +104,12 @@ DEFAULT_MODES: dict[str, ModePlan] = {
         (Capability.CHAT,),
         "Conversational question answering.",
     ),
+    "ppt_agent": ModePlan(
+        "ppt_agent",
+        Capability.PPT_AGENT,
+        (Capability.PPT_AGENT,),
+        "LangGraph 멀티 에이전트 PPT 자동 채우기 파이프라인.",
+    ),
 }
 
 
