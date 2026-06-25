@@ -1,0 +1,44 @@
+{
+  "description": "Insight Writer 설정 — 슬라이드의 채워진 KPI 값을 근거로 인사이트/요약 텍스트를 LLM이 자동 작성한다. 에이전트가 시작 시 이 파일을 읽어 인사이트 자리를 인식한다.",
+  "enabled": true,
+  "run_after": "filler",
+  "language": "ko",
+
+  "placeholder_patterns": [
+    "\\{\\{[^}]*Insight[^}]*\\}\\}",
+    "\\{\\{[^}]*Summary[^}]*\\}\\}",
+    "\\{\\{[^}]*요약[^}]*\\}\\}",
+    "\\{\\{[^}]*코멘트[^}]*\\}\\}",
+    "\\{\\{[^}]+\\}\\}"
+  ],
+  "section_keywords": [
+    "Monthly Highlight", "Insight & Summary", "Recommendation",
+    "Key Takeaway", "Comment", "코멘트", "시사점"
+  ],
+
+  "input": {
+    "slide_context": ["슬라이드 제목", "섹션명", "지표 종류"],
+    "filled_kpis": "해당 슬라이드에서 Filler가 채운 모든 KPI 값(현재월/전월/MoM/국가·플랫폼별)",
+    "comparisons": ["vs. Global", "vs. Co.A(경쟁사)"]
+  },
+
+  "output": {
+    "type": "text",
+    "length": "placeholder는 1문장, 요약영역은 2-3문장",
+    "must_cite_numbers": true
+  },
+
+  "rules": [
+    "모든 수치·추세는 실제 채워진 KPI 값에서만 인용 (없는 값 생성 금지)",
+    "해당 슬라이드 지표만 요약 (다른 슬라이드 혼합 금지)",
+    "MoM/vs 비교로 방향성 명시 (상승/하락/우위/열세)",
+    "정답지 인사이트 문장 복사 금지 — 현재 데이터로 새로 작성",
+    "KPI placeholder(0.0% 등 숫자 자리)는 인사이트 대상이 아님 (Filler 담당)"
+  ],
+
+  "never": [
+    "미채움(빈) KPI를 근거로 인사이트 작성",
+    "수치 환각(hallucination)",
+    "중괄호 외 주변 레이블/서식 변경"
+  ]
+}

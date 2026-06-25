@@ -36,9 +36,6 @@ coverage/
 Thumbs.db
 desktop.ini
 
-# OSS design-reference checkouts — not part of the build
-external/
-
 # generated artifacts
 artifacts/
 
@@ -55,3 +52,7 @@ artifacts/
 *.db-shm
 *.db-journal
 qdrant_data/
+
+# Internal planning & debug scripts
+plans/
+debug_hang.py

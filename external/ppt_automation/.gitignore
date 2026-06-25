@@ -1,0 +1,24 @@
+# 민감 정보
+.env
+.env.*
+!.env.example
+
+# 런타임 캐시 — 매 실행 재생성
+agents/.data_cache/
+cache/memory.db
+cache/scans/
+cache/__pycache__/
+
+# 런타임 집계 데이터
+data/
+
+# LLM 생성 산출물 (core/agent_generated/.gitignore 에서도 처리)
+core/agent_generated/formulas/
+core/agent_generated/mappings/
+core/agent_generated/plans/
+
+# 출력 결과물
+output/
+
+# 실행 로그
+logs/
